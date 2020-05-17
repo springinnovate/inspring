@@ -14,160 +14,16 @@ import tempfile
 
 from osgeo import gdal
 from osgeo import ogr
-from osgeo import osr
 import numpy
 
 import pygeoprocessing
 import pygeoprocessing.routing
 import taskgraph
 from .. import utils
-from .. import validation
-from . import sdr_core
+from . import sdr_c_factor_core
 
 LOGGER = logging.getLogger(__name__)
 
-ARGS_SPEC = {
-    "model_name": "Sediment Delivery Ratio Model (SDR)",
-    "module": __name__,
-    "userguide_html": "sdr.html",
-    "args_with_spatial_overlap": {
-        "spatial_keys": ["dem_path", "erosivity_path", "erodibility_path",
-                         "lulc_path", "drainage_path", "watersheds_path",],
-        "different_projections_ok": True,
-    },
-    "args": {
-        "workspace_dir": validation.WORKSPACE_SPEC,
-        "results_suffix": validation.SUFFIX_SPEC,
-        "n_workers": validation.N_WORKERS_SPEC,
-        "dem_path": {
-            "type": "raster",
-            "required": True,
-            "validation_options": {
-                "projected": True,
-            },
-            "about": (
-                "A GDAL-supported raster file with an elevation value for "
-                "each cell.  Make sure the DEM is corrected by filling in "
-                "sinks, and if necessary burning hydrographic features into "
-                "the elevation model (recommended when unusual streams are "
-                "observed.) See the 'Working with the DEM' section of the "
-                "InVEST User's Guide for more information."),
-            "name": "Digital Elevation Model"
-        },
-        "erosivity_path": {
-            "type": "raster",
-            "required": True,
-            "validation_options": {
-                "projected": True,
-            },
-            "about": (
-                "A GDAL-supported raster file, with an erosivity index value "
-                "for each cell.  This variable depends on the intensity and "
-                "duration of rainfall in the area of interest.  The greater "
-                "the intensity and duration of the rain storm, the higher "
-                "the erosion potential. The erosivity index is widely used, "
-                "but in case of its absence, there are methods and equations "
-                "to help generate a grid using climatic data.  The units are "
-                "MJ*mm/(ha*h*yr)."),
-            "name": "Rainfall Erosivity Index (R)"
-        },
-        "erodibility_path": {
-            "type": "raster",
-            "required": True,
-            "validation_options": {
-                "projected": True,
-            },
-            "about": (
-                "A GDAL-supported raster file, with a soil erodibility value "
-                "for each cell which is a measure of the susceptibility of "
-                "soil particles to detachment and transport by rainfall and "
-                "runoff.  Units are in T*ha*h/(ha*MJ*mm)."),
-            "name": "Soil Erodibility"
-        },
-        "lulc_path": {
-            "type": "raster",
-            "required": True,
-            "validation_options": {
-                "projected": True,
-            },
-            "about": (
-                "A GDAL-supported raster file, with an integer LULC code "
-                "for each cell."),
-            "name": "Land-Use/Land-Cover"
-        },
-        "watersheds_path": {
-            "validation_options": {
-                "required_fields": ["ws_id"],
-                "projected": True,
-            },
-            "type": "vector",
-            "required": True,
-            "about": (
-                "This is a layer of polygons representing watersheds such "
-                "that each watershed contributes to a point of interest "
-                "where water quality will be analyzed.  It must have the "
-                "integer field 'ws_id' where the values uniquely identify "
-                "each watershed."),
-            "name": "Watersheds"
-        },
-        "biophysical_table_path": {
-            "validation_options": {
-                "required_fields": ["lucode", "usle_c", "usle_p"],
-            },
-            "type": "csv",
-            "required": True,
-            "about": (
-                "A CSV table containing model information corresponding to "
-                "each of the land use classes in the LULC raster input.  It "
-                "must contain the fields 'lucode', 'usle_c', and 'usle_p'.  "
-                "See the InVEST Sediment User's Guide for more information "
-                "about these fields."),
-            "name": "Biophysical Table"
-        },
-        "threshold_flow_accumulation": {
-            "validation_options": {
-                "expression": "value > 0",
-            },
-            "type": "number",
-            "required": True,
-            "about": (
-                "The number of upstream cells that must flow into a cell "
-                "before it's considered part of a stream such that retention "
-                "stops and the remaining export is exported to the stream.  "
-                "Used to define streams from the DEM."),
-            "name": "Threshold Flow Accumulation"
-        },
-        "k_param": {
-            "type": "number",
-            "required": True,
-            "about": "Borselli k parameter.",
-            "name": "Borselli k Parameter"
-        },
-        "sdr_max": {
-            "type": "number",
-            "required": True,
-            "about": "Maximum SDR value.",
-            "name": "Max SDR Value"
-        },
-        "ic_0_param": {
-            "type": "number",
-            "required": True,
-            "about": "Borselli IC0 parameter.",
-            "name": "Borselli IC0 Parameter"
-        },
-        "drainage_path": {
-            "type": "raster",
-            "required": False,
-            "about": (
-                "An optional GDAL-supported raster file mask, that indicates "
-                "areas that drain to the watershed.  Format is that 1's "
-                "indicate drainage areas and 0's or nodata indicate areas "
-                "with no additional drainage.  This model is most accurate "
-                "when the drainage raster aligns with the DEM."),
-            "name": "Drainages"
-        }
-    }
-}
 
 _OUTPUT_BASE_FILES = {
     'rkls_path': 'rkls.tif',
@@ -617,7 +473,7 @@ def execute(args):
         task_name='calculate export prime')
 
     _ = task_graph.add_task(
-        func=sdr_core.calculate_sediment_deposition,
+        func=sdr_c_factor_core.calculate_sediment_deposition,
         args=(
             f_reg['flow_direction_path'], f_reg['e_prime_path'],
             f_reg['f_path'], f_reg['sdr_path'],
@@ -1413,50 +1269,3 @@ def _generate_report(
         target_layer.SetFeature(feature)
     target_vector = None
     target_layer = None
-
-
-@validation.invest_validator
-def validate(args, limit_to=None):
-    """Validate args to ensure they conform to `execute`'s contract.
-
-    Parameters:
-        args (dict): dictionary of key(str)/value pairs where keys and
-            values are specified in `execute` docstring.
-        limit_to (str): (optional) if not None indicates that validation
-            should only occur on the args[limit_to] value. The intent that
-            individual key validation could be significantly less expensive
-            than validating the entire `args` dictionary.
-
-    Returns:
-        list of ([invalid key_a, invalid_keyb, ...], 'warning/error message')
-            tuples. Where an entry indicates that the invalid keys caused
-            the error message in the second part of the tuple. This should
-            be an empty list if validation succeeds.
-
-    """
-    validation_warnings = validation.validate(
-        args, ARGS_SPEC['args'], ARGS_SPEC['args_with_spatial_overlap'])
-
-    invalid_keys = validation.get_invalid_keys(validation_warnings)
-    sufficient_keys = validation.get_sufficient_keys(args)
-
-    if ('watersheds_path' not in invalid_keys and
-            'watersheds_path' in sufficient_keys):
-        # The watersheds vector must have an integer column called WS_ID.
-        vector = gdal.OpenEx(args['watersheds_path'], gdal.OF_VECTOR)
-        layer = vector.GetLayer()
-        n_invalid_features = 0
-        for feature in layer:
-            try:
-                _ = int(feature.GetFieldAsString('ws_id'))
-            except ValueError:
-                n_invalid_features += 1
-
-        if n_invalid_features:
-            validation_warnings.append((
-                ['watersheds_path'],
-                ('%s features have a non-integer ws_id field' %
-                    n_invalid_features)))
-            invalid_keys.add('watersheds_path')
-
-    return validation_warnings

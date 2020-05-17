@@ -49,10 +49,10 @@ setup(
     ext_modules=[
         Extension(
             name="inspring.sdr_c_factor.sdr_c_factor_core",
-            sources=["src/inspring/sdr/sdr_c_factor_core.pyx"],
+            sources=["src/inspring/sdr_c_factor/sdr_c_factor_core.pyx"],
             include_dirs=[
                 numpy.get_include(),
-                'src/inspring/sdr'],
+                'src/inspring/sdr_c_factor'],
             extra_compile_args=compiler_and_linker_args,
             extra_link_args=compiler_and_linker_args,
             language="c++",
