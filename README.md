@@ -13,5 +13,5 @@ This is SPRING's execution environment that can build a Docker image that contai
 To run a Python script with this environment do the following:
 
 ```
-docker run therealspring:inspring script_to_run.py
+docker run therealspring/inspring:latest script_to_run.py
 ```
