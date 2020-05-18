@@ -24,6 +24,7 @@ from . import sdr_c_factor_core
 
 LOGGER = logging.getLogger(__name__)
 
+_DEFAULT_L_CAP = 333
 
 _OUTPUT_BASE_FILES = {
     'rkls_path': 'rkls.tif',
@@ -123,6 +124,9 @@ def execute(args):
             raster with values ranging 0..1 which represents the C factor to
             be used in the USLE calculation. The presence of this raster will
             override any C values in the biophysical table.
+        args['l_cap'] (float): optional, if present sets the upstream flow
+            length cap (square of the upstream area) to this value, otherwise
+            default is 333m.
 
     Returns:
         None.
@@ -134,6 +138,10 @@ def execute(args):
         lufield_id = args['biophysical_table_lucode_field']
     biophysical_table = utils.build_lookup_from_csv(
         args['biophysical_table_path'], lufield_id)
+
+    l_cap = _DEFAULT_L_CAP
+    if 'l_cap' in args:
+        l_cap = args['l_cap']
 
     # Test to see if c or p values are outside of 0..1
     for table_key in ['usle_c', 'usle_p']:
@@ -274,7 +282,7 @@ def execute(args):
         func=_calculate_ls_factor,
         args=(
             f_reg['flow_accumulation_path'], f_reg['slope_path'],
-            f_reg['flow_direction_path'], f_reg['ls_path']),
+            f_reg['flow_direction_path'], l_cap, f_reg['ls_path']),
         hash_algorithm='md5',
         copy_duplicate_artifact=True,
         target_path_list=[f_reg['ls_path']],
@@ -583,7 +591,8 @@ def execute(args):
 
 
 def _calculate_ls_factor(
-        flow_accumulation_path, slope_path, aspect_path, out_ls_factor_path):
+        flow_accumulation_path, slope_path, aspect_path, l_cap,
+        out_ls_factor_path):
     """Calculate LS factor.
 
     LS factor as Equation 3 from "Extension and validation
@@ -595,7 +604,9 @@ def _calculate_ls_factor(
         flow_accumulation_path (string): path to raster, pixel values are the
             contributing upstream area at that cell. Pixel size is square.
         slope_path (string): path to slope raster as a percent
-        aspect_path string): path to raster flow direction raster in radians
+        aspect_path (string): path to raster flow direction raster in radians
+        l_cap (float): set the upstream area to be no greater than the
+            square of this number. This is the "McCool l factor cap".
         out_ls_factor_path (string): path to output ls_factor raster
 
     Returns:
@@ -611,13 +622,16 @@ def _calculate_ls_factor(
     cell_size = abs(flow_accumulation_info['pixel_size'][0])
     cell_area = cell_size ** 2
 
-    def ls_factor_function(aspect_angle, percent_slope, flow_accumulation):
+    def ls_factor_function(
+            aspect_angle, percent_slope, flow_accumulation, l_cap):
         """Calculate the LS factor.
 
         Parameters:
             aspect_angle (numpy.ndarray): flow direction in radians
             percent_slope (numpy.ndarray): slope in percent
             flow_accumulation (numpy.ndarray): upstream pixels
+            l_cap (float): set the upstream area to be no greater than the
+                square of this number. This is the "McCool l factor cap".
 
         Returns:
             ls_factor
@@ -635,6 +649,9 @@ def _calculate_ls_factor(
                numpy.abs(numpy.cos(aspect_angle[valid_mask])))
 
         contributing_area = (flow_accumulation[valid_mask]-1) * cell_area
+        # From Rafa, the upstream contributing area should be limited to the
+        # square of 122m instead of the L factor being 333 m.
+        contributing_area[contributing_area > l_cap**2] = l_cap**2
         slope_in_radians = numpy.arctan(percent_slope[valid_mask] / 100.0)
 
         # From Equation 4 in "Extension and validation of a geographic
@@ -668,17 +685,13 @@ def _calculate_ls_factor(
              contributing_area ** (m_exp+1)) /
             ((cell_size ** (m_exp + 2)) * (xij**m_exp) * (22.13**m_exp)))
 
-        # from McCool paper: "as a final check against excessively long slope
-        # length calculations ... cap of 333m"
-        l_factor[l_factor > 333] = 333
-
         result[valid_mask] = l_factor * slope_factor
         return result
 
     # call vectorize datasets to calculate the ls_factor
     pygeoprocessing.raster_calculator(
         [(path, 1) for path in [
-            aspect_path, slope_path, flow_accumulation_path]],
+            aspect_path, slope_path, flow_accumulation_path]] + (l_cap, 'raw'),
         ls_factor_function, out_ls_factor_path, gdal.GDT_Float32,
         _TARGET_NODATA)
 
