@@ -317,7 +317,7 @@ RUN pip3 install git+https://github.com/natcap/pygeoprocessing.git@release/2.0
 RUN pip3 install ecoshard==0.4.0
 RUN pip3 install pandas
 
-COPY inspring /usr/local/inspring
+COPY ./ /usr/local/inspring/
 WORKDIR /usr/local/inspring
 RUN /usr/bin/python setup.py install
 

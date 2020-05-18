@@ -9,8 +9,6 @@ _REQUIREMENTS = [
     x for x in open('requirements.txt').read().split('\n')
     if not x.startswith('#') and len(x) > 0]
 
-compiler_and_linker_args = ['-stdlib=libc++']
-
 setup(
     name='inspring',
     description="InSPRING: Computational Environment for experimental InVEST",
@@ -53,8 +51,6 @@ setup(
             include_dirs=[
                 numpy.get_include(),
                 'src/inspring/sdr_c_factor'],
-            extra_compile_args=compiler_and_linker_args,
-            extra_link_args=compiler_and_linker_args,
             language="c++",
         )
     ]
