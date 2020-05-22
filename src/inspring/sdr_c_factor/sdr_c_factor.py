@@ -691,9 +691,9 @@ def _calculate_ls_factor(
     # call vectorize datasets to calculate the ls_factor
     pygeoprocessing.raster_calculator(
         [(path, 1) for path in [
-            aspect_path, slope_path, flow_accumulation_path]] + (l_cap, 'raw'),
-        ls_factor_function, out_ls_factor_path, gdal.GDT_Float32,
-        _TARGET_NODATA)
+            aspect_path, slope_path, flow_accumulation_path]] +
+        [(l_cap, 'raw')], ls_factor_function, out_ls_factor_path,
+        gdal.GDT_Float32, _TARGET_NODATA)
 
 
 def _calculate_rkls(
