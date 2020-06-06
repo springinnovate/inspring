@@ -29,7 +29,7 @@ RUN apt install git -y
 RUN pip3 install pandas
 RUN pip3 install pygeoprocessing==2.0.0
 RUN pip3 install ecoshard==0.4.0
-RUN pip3 install git+https://github.com/richpsharp/taskgraph@bugfix/TASKGRAPH-29-terminate-when-done
+RUN pip3 install git+https://github.com/richpsharp/taskgraph@f05e71b0f6b72645768ad2f5ea87ed75c799be16
 
 COPY ./ /usr/local/inspring/
 WORKDIR /usr/local/inspring
