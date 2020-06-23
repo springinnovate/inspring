@@ -927,9 +927,11 @@ def _multiply_op(array_a, array_b, nodata_a, nodata_b, result_nodata):
     """Mult a by b."""
     result = numpy.empty_like(array_a)
     result[:] = result_nodata
-    valid_mask = (
-        ~numpy.isclose(array_a, nodata_a) &
-        ~numpy.isclose(array_b, nodata_b))
+    valid_mask = numpy.ones(array_a.shape, dtype=numpy.bool)
+    if nodata_a is not None:
+        valid_mask &= ~numpy.isclose(array_a, nodata_a)
+    if nodata_b is not None:
+        valid_mask &= ~numpy.isclose(array_b, nodata_b)
     result[valid_mask] = array_a[valid_mask] * array_b[valid_mask]
     return result
 
