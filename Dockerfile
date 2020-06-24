@@ -1,12 +1,12 @@
 FROM therealspring/python-gdal:3.0.4
 
 RUN apt update && apt upgrade -y
-RUN apt install
+RUN apt install -y \
     curl \
     git \
     libspatialindex-dev \
     openssl \
-    python3-pip -y
+    python3-pip
 
 SHELL ["/bin/bash", "-c"]
 WORKDIR /usr/local/gcloud-sdk
