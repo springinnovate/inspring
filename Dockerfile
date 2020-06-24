@@ -1,7 +1,12 @@
 FROM therealspring/python-gdal:3.0.4
 
 RUN apt update && apt upgrade -y
-RUN apt install libspatialindex-dev openssl curl -y
+RUN apt install
+    curl \
+    git \
+    libspatialindex-dev \
+    openssl \
+    python3-pip -y
 
 SHELL ["/bin/bash", "-c"]
 WORKDIR /usr/local/gcloud-sdk
@@ -14,8 +19,6 @@ RUN echo "export PATH=$PATH:/usr/local/gcloud-sdk/google-cloud-sdk/bin" >> /root
 COPY ecoshard-202922-ecaf56282476.json /usr/local/ecoshard-202922-ecaf56282476.json
 RUN /usr/local/gcloud-sdk/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=/usr/local/ecoshard-202922-ecaf56282476.json
 RUN rm /usr/local/ecoshard-202922-ecaf56282476.json
-
-RUN apt install git && python3-pip -y
 
 COPY ./ /usr/local/inspring/
 WORKDIR /usr/local/inspring
