@@ -25,14 +25,15 @@ RUN source /usr/local/gcloud-sdk/google-cloud-sdk/completion.bash.inc
 RUN source /usr/local/gcloud-sdk/google-cloud-sdk/path.bash.inc
 RUN echo "export PATH=$PATH:/usr/local/gcloud-sdk/google-cloud-sdk/bin" >> /root/.bashrc
 
+COPY ecoshard-202922-ecaf56282476.json /usr/local/ecoshard-202922-ecaf56282476.json
+RUN /usr/local/gcloud-sdk/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=/usr/local/ecoshard-202922-ecaf56282476.json
+RUN rm /usr/local/ecoshard-202922-ecaf56282476.json
+
 RUN apt install git -y
-RUN pip3 install pandas
-RUN pip3 install pygeoprocessing==2.0.0
-RUN pip3 install ecoshard==0.4.0
-RUN pip3 install git+https://github.com/richpsharp/taskgraph@f05e71b0f6b72645768ad2f5ea87ed75c799be16
 
 COPY ./ /usr/local/inspring/
 WORKDIR /usr/local/inspring
+RUN pip3 install -r requirements.txt
 RUN /usr/bin/python setup.py install
 
 WORKDIR /usr/local/workspace
