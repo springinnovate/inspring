@@ -3,6 +3,7 @@ FROM therealspring/python-gdal:3.0.4
 RUN apt-get update -qq && \
     apt-get install -y \
     curl \
+    emacs \
     git \
     libspatialindex-dev \
     openssl \
