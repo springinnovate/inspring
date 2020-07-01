@@ -5,6 +5,7 @@ RUN apt-get update -qq && \
     curl \
     emacs \
     git \
+    git-lfs \
     libspatialindex-dev \
     openssl \
     python3-pip \
