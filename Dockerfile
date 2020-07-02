@@ -32,6 +32,7 @@ RUN /usr/bin/python setup.py install
 WORKDIR /usr/local/invest
 RUN git clone https://github.com/natcap/invest.git
 RUN git checkout 3.8.5
+# Use the same requirements as inspring for invest
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
