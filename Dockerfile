@@ -29,5 +29,10 @@ WORKDIR /usr/local/inspring
 RUN pip3 install -r requirements.txt
 RUN /usr/bin/python setup.py install
 
+WORKDIR /usr/local/invest
+RUN git clone https://github.com/natcap/invest.git
+RUN git checkout 3.8.5
+RUN /usr/bin/python setup.py install
+
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
