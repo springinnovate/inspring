@@ -7,7 +7,7 @@ from setuptools import setup
 # contents.
 _REQUIREMENTS = [
     x for x in open('requirements.txt').read().split('\n')
-    if not x.startswith('#') and len(x) > 0]
+    if not x.startswith('#') and len(x) > 0 and not x.startswith('git+https')]
 
 setup(
     name='inspring',
