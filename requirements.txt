@@ -23,7 +23,7 @@ pandas>=0.22.0
 psutil>=5.6.6
 pytest
 # this commit is a recent version of the raster optimization branch
-git+https://github.com/richpsharp/pygeoprocessing.git@7dbe7ba56f82000c7a324cf90eb0e5f08fd5a4b0
+git+https://github.com/richpsharp/pygeoprocessing.git@3a67d1247641f8a6a89c984a418c5e44e25719ad
 Pyro4==4.77  # pip-only
 requests
 retrying
