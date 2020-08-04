@@ -38,7 +38,7 @@ RUN git checkout release/3.9
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
-RUN pip3 install git+https://github.com/richpsharp/ecoshard.git@a9bdf99f3b5d510d6e91347bdc828a55271e3540 --upgrade
+RUN pip3 install git+https://github.com/richpsharp/ecoshard.git@9b0befaf747864e1268e5ba4183ac254e80d7a7a --upgrade
 
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
