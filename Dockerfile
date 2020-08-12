@@ -1,4 +1,4 @@
-FROM therealspring/python-gdal:3.0.4
+FROM therealspring/python-gdal:3.1.2
 
 RUN apt-get update -qq && \
     apt-get install -y \
@@ -38,7 +38,7 @@ RUN git checkout release/3.9
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
-RUN pip3 install git+https://github.com/richpsharp/ecoshard.git@9b0befaf747864e1268e5ba4183ac254e80d7a7a --upgrade
+RUN pip3 install git+https://github.com/richpsharp/ecoshard.git@7639aa35b76d7d87e22d9db3c7813e2997667f84 --upgrade
 
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
