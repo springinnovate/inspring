@@ -25,6 +25,7 @@ RUN /usr/local/gcloud-sdk/google-cloud-sdk/bin/gcloud auth activate-service-acco
 RUN rm /usr/local//ecoshard-bucket-reader-key.json
 
 COPY ./docker_context/ /usr/local/inspring/
+COPY .git /usr/local/inspring
 WORKDIR /usr/local/inspring
 RUN pip3 install -r requirements.txt
 RUN /usr/bin/python setup.py install
