@@ -38,8 +38,8 @@ RUN git checkout release/3.9
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
+RUN pip3 install git+https://github.com/richpsharp/pygeoprocessing.git@602b7ac57a325b8a46f5bc53aa4f9822ad563aa3 --upgrade
 RUN pip3 install git+https://github.com/richpsharp/ecoshard.git@9b0befaf747864e1268e5ba4183ac254e80d7a7a --upgrade
-RUN pip3 install git+https://github.com/richpsharp/pygeoprocessing.git@7639aa35b76d7d87e22d9db3c7813e2997667f84 --upgrade
 
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
