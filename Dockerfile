@@ -24,7 +24,7 @@ COPY /ecoshard-bucket-reader-key.json /usr/local//ecoshard-bucket-reader-key.jso
 RUN /usr/local/gcloud-sdk/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=/usr/local//ecoshard-bucket-reader-key.json
 RUN rm /usr/local//ecoshard-bucket-reader-key.json
 
-COPY ./src/ /usr/local/inspring/
+COPY ./src/ /usr/local/inspring/src
 COPY ./setup.py /usr/local/inspring/
 COPY ./requirements.txt /usr/local/inspring/
 WORKDIR /usr/local/inspring
