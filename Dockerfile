@@ -24,24 +24,20 @@ COPY /ecoshard-bucket-reader-key.json /usr/local//ecoshard-bucket-reader-key.jso
 RUN /usr/local/gcloud-sdk/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=/usr/local//ecoshard-bucket-reader-key.json
 RUN rm /usr/local//ecoshard-bucket-reader-key.json
 
-COPY ./docker_context /usr/local/inspring/
+COPY ./src /usr/local/inspring/
+COPY ./setup.py /usr/local/inspring/
+COPY ./requirements.txt /usr/local/inspring/
 WORKDIR /usr/local/inspring
 RUN pip3 install -r requirements.txt
 RUN /usr/bin/python setup.py install
 
+# Use the same requirements as inspring for invest
 WORKDIR /usr/local/
 RUN git clone https://github.com/natcap/invest.git
 WORKDIR /usr/local/invest/
 RUN git checkout release/3.9
-
-# Use the same requirements as inspring for invest
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
-
-RUN pip3 install git+https://github.com/richpsharp/pygeoprocessing.git@9f6bf995aeab32e775c05c22fef2e533627ac170 --upgrade
-RUN pip3 install git+https://github.com/richpsharp/ecoshard.git@9b0befaf747864e1268e5ba4183ac254e80d7a7a --upgrade
-
-RUN pip3 install scikit-learn scikit-image
 
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
