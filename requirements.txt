@@ -21,7 +21,7 @@ numpy>=1.11.0,!=1.16.0
 pandas>=0.22.0
 psutil>=5.6.6
 pytest
-git+https://github.com/richpsharp/pygeoprocessing.git@9f6bf995aeab32e775c05c22fef2e533627ac170
+git+https://github.com/richpsharp/pygeoprocessing.git@92b032e39da7da640d0f0ada02762b394acff199
 git+https://github.com/richpsharp/ecoshard.git@9b0befaf747864e1268e5ba4183ac254e80d7a7a
 Pyro4==4.77  # pip-only
 requests
@@ -29,7 +29,7 @@ retrying
 Rtree>=0.8.2,!=0.9.1
 scipy>=0.16.1
 Shapely>=1.6.4
-taskgraph[niced_processes]>=0.9.1
+taskgraph[niced_processes]>=0.10.0
 xlrd>=1.2.0
 xlwt
 scikit-learn
