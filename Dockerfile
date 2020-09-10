@@ -37,5 +37,7 @@ RUN git checkout release/3.9
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
+RUN pip3 install git+https://github.com/richpsharp/taskgraph.git@1687ae61e8c05421ac5ad0ecb34b9c8e462361dc
+
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
