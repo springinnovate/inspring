@@ -29,7 +29,8 @@ retrying
 Rtree>=0.8.2,!=0.9.1
 scipy>=0.16.1
 Shapely>=1.6.4
-taskgraph[niced_processes]>=0.10.0
+git+https://github.com/richpsharp/taskgraph.git@1687ae61e8c05421ac5ad0ecb34b9c8e462361dc
+psutils
 xlrd>=1.2.0
 xlwt
 scikit-learn
