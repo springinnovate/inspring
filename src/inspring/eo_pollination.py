@@ -534,6 +534,23 @@ def execute(args):
             args=(alpha, kernel_path),
             target_path_list=[kernel_path])
 
+        # create EFD for species
+        efd_raster_path = os.path.join(
+            intermediate_output_dir, _EFD_FILE_PATTERN % (
+                species, file_suffix))
+        create_efd_species_task = task_graph.add_task(
+            func=pygeoprocessing.convolve_2d,
+            args=(
+                (eft_clip_raster_path, 1), (kernel_path, 1),
+                efd_raster_path),
+            kwargs={
+                'ignore_nodata_and_edges': True,
+                'mask_nodata': True,
+                'normalize_kernel': False,
+                },
+            dependent_task_list=[eft_clip_task],
+            task_name=f'create efd for {species}')
+
         # convolve FE with alpha_s
         floral_resources_index_path = os.path.join(
             intermediate_output_dir, _FLORAL_RESOURCES_INDEX_FILE_PATTERN % (
