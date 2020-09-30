@@ -15,145 +15,8 @@ import scipy.optimize
 import taskgraph
 
 from . import utils
-from . import validation
 
 LOGGER = logging.getLogger(__name__)
-
-ARGS_SPEC = {
-    "model_name": "EO-Crop Pollination",
-    "module": __name__,
-    "userguide_html": "eo-croppollination.html",
-    "args": {
-        "workspace_dir": validation.WORKSPACE_SPEC,
-        "results_suffix": validation.SUFFIX_SPEC,
-        "n_workers": validation.N_WORKERS_SPEC,
-        "landcover_raster_path": {
-            "type": "raster",
-            "required": True,
-            "validation_options": {
-                "projected": True,
-            },
-            "about": (
-                "This is the landcover map that's used to map biophysical "
-                "properties about habitat and floral resources of landcover "
-                "types to a spatial layout."),
-            "name": "Land Cover Map"
-        },
-        "ecosystem_functional_types_raster_path": {
-            "type": "raster",
-            "required": False,
-            "validation_options": {
-                "projected": True,
-            },
-            "about": (
-                'Ecosystem Functional Diversity raster whose pixels represent '
-                'the number of functional diversity types that can be found '
-                'in that pixel area.')
-        },
-        "minimum_diversity_count": {
-            "type": "number",
-            "required": False,
-            "name": "Minimum Viable Diversity Count (0.1)",
-            "about": (
-                "Minimum threshold of diversity types needed to reach 0.1 of "
-                "the EFD saturation. This value should be > 0. Practically, "
-                "this is used in the "
-                "model to map the EFD counts to a number between 0 and 1 to "
-                "represent biodiversity health."),
-        },
-        "sufficient_diversity_count": {
-            "type": "number",
-            "required": False,
-            "name": "Sufficient Diversity Count (0.9)",
-            "about": (
-                "Sufficient number of diversity types needed to reach 0.9 of "
-                "the EFD saturation. This need not "
-                "be the max value in the Ecosystem Functional Types Raster. "
-                "Instead it reflects the maximum EFT count that would result "
-                "in a fully diverse area. Practically, this is used in the "
-                "model to map the EFD counts to a number between 0 and 1 to "
-                "represent biodiversity health."),
-        },
-        "guild_table_path": {
-            "validation_options": {
-                "required_fields": ["species", "alpha", "relative_abundance"],
-            },
-            "type": "csv",
-            "required": True,
-            "about": (
-                "A table indicating the bee species to analyze in this model "
-                "run.  Table headers must include:<br/>* 'species': a bee "
-                "species whose column string names will be referred to in "
-                "other tables and the model will output analyses per species."
-                "<br/> * any number of columns matching "
-                "_NESTING_SUITABILITY_PATTERN with values in the range "
-                "[0.0, 1.0] indicating the suitability of the given species "
-                "to nest in a particular substrate.<br/>* any number of "
-                "_FORAGING_ACTIVITY_PATTERN columns with values in the range "
-                "[0.0, 1.0] indicating the relative level of foraging "
-                "activity for that species during a particular season."
-                "<br/>* 'alpha': the sigma average flight distance of that "
-                "bee species in meters.<br/>* 'relative_abundance': a weight "
-                "indicating the relative abundance of the particular species "
-                "with respect to the sum of all relative abundance weights "
-                "in the table."),
-            "name": "Guild Table"
-        },
-        "landcover_biophysical_table_path": {
-            "validation_options": {
-                "required_fields": ["lucode"],
-            },
-            "type": "csv",
-            "required": True,
-            "about": (
-                "A CSV table mapping landcover codes in the landcover raster "
-                "to indexes of nesting availability for each nesting "
-                "substrate referenced in guilds table as well as indexes of "
-                "abundance of floral resources on that landcover type per "
-                "season in the bee activity columns of the guild table."
-                "<br/>All indexes are in the range [0.0, 1.0].<br/>Columns "
-                "in the table must be at least<br/>* 'lucode': representing "
-                "all the unique landcover codes in the raster st "
-                "`args['landcover_path']`<br/>* For every nesting matching "
-                "_NESTING_SUITABILITY_PATTERN in the guild stable, a column "
-                "matching the pattern in `_LANDCOVER_NESTING_INDEX_HEADER`."
-                "<br/>* For every season matching _FORAGING_ACTIVITY_PATTERN "
-                "in the guilds table, a column matching the pattern in "
-                "`_LANDCOVER_FLORAL_RESOURCES_INDEX_HEADER`."),
-            "name": "Land Cover Biophysical Table"
-        },
-        "farm_vector_path": {
-            "validation_options": {
-                "required_fields": ["crop_type", "half_sat", "season", "p_dep",
-                                    "p_managed"],
-            },
-            "type": "vector",
-            "required": False,
-            "about": (
-                "This is a layer of polygons representing farm sites to be "
-                "analyzed.  The vector must have at least the following "
-                "fields:<br/><br/>* season (string): season in which the "
-                "farm needs pollination.<br/>* half_sat (float): a real in "
-                "the range [0.0, 1.0] representing the proportion of wild "
-                "pollinators to achieve a 50% yield of that crop.<br/>* "
-                "p_wild_dep (float): a number in the range [0.0, 1.0] "
-                "representing the proportion of yield dependent on "
-                "pollinators.<br/>* p_managed (float): proportion of "
-                "pollinators that come from non-native/managed hives.<br/>"
-                "* f_[season] (float): any number of fields that match this "
-                "pattern such that `season` also matches the season headers "
-                "in the biophysical and guild table.  Any areas that overlap "
-                "the landcover map will replace seasonal floral resources "
-                "with this value.  Ranges from 0..1.<br/>* n_[substrate] "
-                "(float): any number of fields that match this pattern such "
-                "that `substrate` also matches the nesting substrate headers "
-                "in the biophysical and guild table.  Any areas that "
-                "overlap the landcover map will replace nesting substrate "
-                "suitability with this value.  Ranges from 0..1."),
-            "name": "Farm Vector"
-        }
-    }
-}
 
 _INDEX_NODATA = -1.0
 
@@ -290,13 +153,28 @@ def _create_bounded_sigmoid(lower_bound, upper_bound):
 def execute(args):
     """InVEST Pollination Model.
 
-    Parameters:
+    Args:
         args['workspace_dir'] (string): a path to the output workspace folder.
             Will overwrite any files that exist if the path already exists.
         args['results_suffix'] (string): string appended to each output
             file path.
         args['landcover_raster_path'] (string): file path to a landcover
             raster.
+        args['ecosystem_functional_types_raster_path'] (string): Ecosystem
+            Functional Diversity raster whose pixels represent the number of
+            functional diversity types that can be found in that pixel area.
+        args['minimum_diversity_count'] (numeric): Minimum threshold of
+            diversity types needed to reach 0.1 of the EFD saturation. This
+            value should be > 0. Practically, this is used in the model to map
+            EFD counts to a number between 0 and 1 to represent biodiversity
+            health.
+        args['sufficient_diversity_count'] (numeric): Sufficient number of
+            diversity types needed to reach 0.9 of the EFD saturation. This
+            need not be the max value in the Ecosystem Functional Types Raster.
+            Instead it reflects the maximum EFT count that would result in a
+            fully diverse area. Practically, this is used in the model to map
+            the EFD counts to a number between 0 and 1 to represent
+            biodiversity health.
         args['guild_table_path'] (string): file path to a table indicating
             the bee species to analyze in this model run.  Table headers
             must include:
@@ -409,8 +287,8 @@ def execute(args):
             task_name='reproject_farm_task',
             func=pygeoprocessing.reproject_vector,
             args=(
-                args['farm_vector_path'], landcover_raster_info['projection_wkt'],
-                farm_vector_path),
+                args['farm_vector_path'],
+                landcover_raster_info['projection_wkt'], farm_vector_path),
             target_path_list=[farm_vector_path])
 
     # calculate nesting_substrate_index[substrate] substrate maps
@@ -1510,27 +1388,3 @@ class _PYWOp(object):
         max_mask = valid_mask & (result < 0.0)
         result[max_mask] = 0.0
         return result
-
-
-@validation.invest_validator
-def validate(args, limit_to=None):
-    """Validate args to ensure they conform to `execute`'s contract.
-
-    Parameters:
-        args (dict): dictionary of key(str)/value pairs where keys and
-            values are specified in `execute` docstring.
-        limit_to (str): (optional) if not None indicates that validation
-            should only occur on the args[limit_to] value. The intent that
-            individual key validation could be significantly less expensive
-            than validating the entire `args` dictionary.
-
-    Returns:
-        list of ([invalid key_a, invalid_keyb, ...], 'warning/error message')
-            tuples. Where an entry indicates that the invalid keys caused
-            the error message in the second part of the tuple. This should
-            be an empty list if validation succeeds.
-    """
-    # Deliberately not validating the interrelationship of the columns between
-    # the biophysical table and the guilds table as the model itself already
-    # does extensive checking for this.
-    return validation.validate(args, ARGS_SPEC['args'])
