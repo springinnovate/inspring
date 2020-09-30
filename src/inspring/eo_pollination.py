@@ -118,6 +118,11 @@ _EXPECTED_FARM_HEADERS = [
     _MANAGED_POLLINATORS_FIELD, _FARM_FLORAL_RESOURCES_PATTERN,
     _FARM_NESTING_SUBSTRATE_RE_PATTERN, _CROP_POLLINATOR_DEPENDENCE_FIELD]
 
+# used for clipping EFT to landcover replace (file_suffix)
+_EFT_CLIP_FILE_PATTERN = 'eft_%s%s.tif'
+# used for creating EFD from EFT replace (species, file_suffix)
+_EFD_FILE_PATTERN = 'efd_%s%s.tif'
+
 
 def _create_bounded_sigmoid(lower_bound, upper_bound):
     """Create a sigmoid bounded between 0.1 and 0.9.
@@ -290,6 +295,22 @@ def execute(args):
                 args['farm_vector_path'],
                 landcover_raster_info['projection_wkt'], farm_vector_path),
             target_path_list=[farm_vector_path])
+
+    # clip the EFT raster to be the same size/projection as landcover map
+    eft_clip_raster_path = os.path.join(
+        intermediate_output_dir, _EFT_CLIP_FILE_PATTERN % file_suffix)
+    eft_clip_task = task_graph.add_task(
+        func=pygeoprocessing.warp_raster,
+        args=(
+            args['ecosystem_functional_types_raster_path'],
+            landcover_raster_info['pixel_size'], eft_clip_raster_path,
+            'average'),
+        kwargs={
+            'target_bb': landcover_raster_info['bounding_box'],
+            'target_projection_wkt': landcover_raster_info['projection_wkt'],
+            'working_dir': intermediate_output_dir},
+        target_path_list=[eft_clip_raster_path],
+        task_name='clip EFT raster')
 
     # calculate nesting_substrate_index[substrate] substrate maps
     # N(x, n) = ln(l(x), n)
