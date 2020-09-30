@@ -119,7 +119,7 @@ _EXPECTED_FARM_HEADERS = [
     _FARM_NESTING_SUBSTRATE_RE_PATTERN, _CROP_POLLINATOR_DEPENDENCE_FIELD]
 
 # used for clipping EFT to landcover replace (file_suffix)
-_EFT_CLIP_FILE_PATTERN = 'eft_%s%s.tif'
+_EFT_CLIP_FILE_PATTERN = 'eft_clip%s.tif'
 # used for creating EFD from EFT replace (species, file_suffix)
 _EFD_FILE_PATTERN = 'efd_%s%s.tif'
 
@@ -311,6 +311,7 @@ def execute(args):
             'working_dir': intermediate_output_dir},
         target_path_list=[eft_clip_raster_path],
         task_name='clip EFT raster')
+    eft_clip_task.join()
 
     # calculate nesting_substrate_index[substrate] substrate maps
     # N(x, n) = ln(l(x), n)
