@@ -126,6 +126,39 @@ _EFT_CLIP_FILE_PATTERN = 'eft_clip%s.tif'
 _EFD_FILE_PATTERN = 'efd_%s%s.tif'
 
 
+def _create_wddi(weighted_eft_raster_list, target_wddi_raster_path):
+    """Create WDDI from given list of rasters.
+
+    Create -> 1/sum((weighted_raster^2)) for all weighted rasters
+
+    Args:
+        weighted_eft_raster_list (list): path to 0/1 rasters indicating the
+            weighted exponential decay of a particular EFT presence for a
+            given alpha for a species.
+
+        target_wddi_raster_path (str): path to WDDI raster.
+
+    Returns:
+        None
+    """
+    nodata = pygeoprocessing.get_raster_info(
+        weighted_eft_raster_list[0])['nodata'][0]
+
+    def _wddi_op(array_list):
+        """Calculate WDDI as described above."""
+        result = numpy.zeros(array_list[0].shape)
+        nodata_mask = numpy.isclose(array_list[0], nodata)
+        result[nodata_mask] = nodata
+        for array in array_list:
+            result[nodata_mask] += array_list[nodata_mask]**2
+        result[nodata_mask] = 1/result[nodata_mask]
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(path, 1) for path in weighted_eft_raster_list], _wddi_op,
+        target_wddi_raster_path, gdal.GDT_Float32, nodata)
+
+
 def _mask_raster(base_raster_path, unique_value, target_raster_path):
     """Create 0/1 nodata raster based on input values.
 
@@ -390,6 +423,15 @@ def execute(args):
 
             weighted_eft_raster_list.append(eft_weighted_path)
             weighted_eft_task_list.append(create_efd_weighted_task)
+
+        wddi_raster_path = os.path.join(
+            intermediate_output_dir, f'wddi_{species}{file_suffix}.tif')
+        task_graph.add_task(
+            func=_create_wddi,
+            args=(weighted_eft_raster_list, wddi_raster_path),
+            dependent_task_list=weighted_eft_task_list,
+            target_path_list=[wddi_raster_path],
+            task_name=f'create wddi for {species}')
 
     task_graph.close()
     task_graph.join()
