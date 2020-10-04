@@ -20,28 +20,30 @@ LOGGER = logging.getLogger(__name__)
 
 _INDEX_NODATA = -1.0
 
-# These patterns are expected in the biophysical table
-_NESTING_SUBSTRATE_PATTERN = 'nesting_([^_]+)_availability_index'
-_FLORAL_RESOURCES_AVAILABLE_PATTERN = 'floral_resources_([^_]+)_index'
-_EXPECTED_BIOPHYSICAL_HEADERS = [
-    'lucode', _NESTING_SUBSTRATE_PATTERN, _FLORAL_RESOURCES_AVAILABLE_PATTERN]
-
-# These are patterns expected in the guilds table
-_NESTING_SUITABILITY_PATTERN = 'nesting_suitability_([^_]+)_index'
+# These are patterns expected in the guilds table re expressions are season
+_FLORAL_RESOURCES_EFD_MIN_RE = 'floral_resources_([^_]+)_efd_min'
+_FLORAL_RESOURCES_EFD_SUFFICIENT_RE = 'floral_resources_([^_]+)_efd_sufficient'
 # replace with season
 _FORAGING_ACTIVITY_PATTERN = 'foraging_activity_%s_index'
-_FORAGING_ACTIVITY_RE_PATTERN = _FORAGING_ACTIVITY_PATTERN % '([^_]+)'
+_FORAGING_ACTIVITY_RE = _FORAGING_ACTIVITY_PATTERN % '([^_]+)'
 _RELATIVE_SPECIES_ABUNDANCE_FIELD = 'relative_abundance'
 _ALPHA_HEADER = 'alpha'
 _EXPECTED_GUILD_HEADERS = [
-    'species', _NESTING_SUITABILITY_PATTERN, _FORAGING_ACTIVITY_RE_PATTERN,
-    _ALPHA_HEADER, _RELATIVE_SPECIES_ABUNDANCE_FIELD]
+    'species',
+    _FORAGING_ACTIVITY_RE,
+    _ALPHA_HEADER,
+    _RELATIVE_SPECIES_ABUNDANCE_FIELD,
+    'nesting_suitability_efd_min',
+    'nesting_suitability_efd_sufficient',
+    _FLORAL_RESOURCES_EFD_MIN_RE,
+    _FLORAL_RESOURCES_EFD_SUFFICIENT_RE,
+    ]
 
+# replaced by (species, file_suffix)
 _NESTING_SUBSTRATE_INDEX_FILEPATTERN = 'nesting_substrate_index_%s%s.tif'
 # this is used if there is a farm polygon present
 _FARM_NESTING_SUBSTRATE_INDEX_FILEPATTERN = (
     'farm_nesting_substrate_index_%s%s.tif')
-
 # replaced by (species, file_suffix)
 _HABITAT_NESTING_INDEX_FILE_PATTERN = 'habitat_nesting_index_%s%s.tif'
 # replaced by (season, file_suffix)
@@ -124,6 +126,43 @@ _EFT_CLIP_FILE_PATTERN = 'eft_clip%s.tif'
 _EFD_FILE_PATTERN = 'efd_%s%s.tif'
 
 
+def _mask_raster(base_raster_path, unique_value, target_raster_path):
+    """Create 0/1 nodata raster based on input values.
+
+    Args:
+        base_raster_path (str): path to single band raster.
+        unique_value (numeric): desired value to mask against in base.
+        target_raster_path (str): path to target raster that will have
+            nodata where base is nodata, 1 where unique_value is present
+            or 0.
+
+    Returns:
+        None
+    """
+    nodata = pygeoprocessing.get_raster_info(base_raster_path)['nodata'][0]
+    local_nodata = 2
+
+    def _mask_op(base_array):
+        """Mask base to 0/1/nodata if base == unique_value."""
+        result = numpy.zeros(base_array.shape, dtype=numpy.int8)
+        result[base_array == unique_value] = 1
+        if nodata is not None:
+            result[numpy.isclose(base_array, nodata)] = local_nodata
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(base_raster_path, 1)], _mask_op, target_raster_path,
+        gdal.GDT_Byte, local_nodata)
+
+
+def _get_unique_values(raster_path):
+    """Return set of unique values in the single band raster path."""
+    unique_value_set = set()
+    for _, raster_block in pygeoprocessing.iterblocks((raster_path, 1)):
+        unique_value_set.update(numpy.unique(raster_block))
+    return unique_value_set
+
+
 def _create_bounded_sigmoid(lower_bound, upper_bound):
     """Create a sigmoid bounded between 0.1 and 0.9.
 
@@ -163,11 +202,10 @@ def execute(args):
             Will overwrite any files that exist if the path already exists.
         args['results_suffix'] (string): string appended to each output
             file path.
-        args['landcover_raster_path'] (string): file path to a landcover
-            raster.
-        args['ecosystem_functional_types_raster_path'] (string): Ecosystem
-            Functional Diversity raster whose pixels represent the number of
-            functional diversity types that can be found in that pixel area.
+        eft_clip_raster_path (string): Ecosystem Functional Types raster
+            whose pixels represent unique ecosystem
+            functional types at a given pixel. The value is the "id" of that
+            ecosystem functional type.
         args['minimum_diversity_count'] (numeric): Minimum threshold of
             diversity types needed to reach 0.1 of the EFD saturation. This
             value should be > 0. Practically, this is used in the model to map
@@ -190,7 +228,7 @@ def execute(args):
                     with values in the range [0.0, 1.0] indicating the
                     suitability of the given species to nest in a particular
                     substrate.
-                * one or more columns matching _FORAGING_ACTIVITY_RE_PATTERN
+                * one or more columns matching _FORAGING_ACTIVITY_RE
                     with values in the range [0.0, 1.0] indicating the
                     relative level of foraging activity for that species
                     during a particular season.
@@ -200,24 +238,6 @@ def execute(args):
                     abundance of the particular species with respect to the
                     sum of all relative abundance weights in the table.
 
-        args['landcover_biophysical_table_path'] (string): path to a table
-            mapping landcover codes in `args['landcover_path']` to indexes of
-            nesting availability for each nesting substrate referenced in
-            guilds table as well as indexes of abundance of floral resources
-            on that landcover type per season in the bee activity columns of
-            the guild table.
-
-            All indexes are in the range [0.0, 1.0].
-
-            Columns in the table must be at least
-                * 'lucode': representing all the unique landcover codes in
-                    the raster ast `args['landcover_path']`
-                * For every nesting matching _NESTING_SUITABILITY_PATTERN
-                  in the guild stable, a column matching the pattern in
-                  `_LANDCOVER_NESTING_INDEX_HEADER`.
-                * For every season matching _FORAGING_ACTIVITY_RE_PATTERN
-                  in the guilds table, a column matching
-                  the pattern in `_LANDCOVER_FLORAL_RESOURCES_INDEX_HEADER`.
         args['farm_vector_path'] (string): (optional) path to a single layer
             polygon shapefile representing farms. If present will trigger the
             farm yield component of the model.
@@ -274,8 +294,6 @@ def execute(args):
     # and possibly a farm polygon.  This function will also raise an exception
     # if any of the inputs are malformed.
     scenario_variables = _parse_scenario_variables(args)
-    landcover_raster_info = pygeoprocessing.get_raster_info(
-        args['landcover_raster_path'])
 
     try:
         n_workers = int(args['n_workers'])
@@ -285,170 +303,118 @@ def execute(args):
         # TypeError when n_workers is None.
         n_workers = -1  # Synchronous mode.
     task_graph = taskgraph.TaskGraph(work_token_dir, n_workers)
-
+    eft_raster_info = pygeoprocessing.get_raster_info(
+        args['eft_raster_path'])
     if farm_vector_path is not None:
-        # ensure farm vector is in the same projection as the landcover map
+        # ensure farm vector is in the same projection as the eft map
         reproject_farm_task = task_graph.add_task(
             task_name='reproject_farm_task',
             func=pygeoprocessing.reproject_vector,
             args=(
                 args['farm_vector_path'],
-                landcover_raster_info['projection_wkt'], farm_vector_path),
+                eft_raster_info['projection_wkt'], farm_vector_path),
             target_path_list=[farm_vector_path])
 
+    # TODO: process the EFT raster so pixels are square and desired resolution
     # clip the EFT raster to be the same size/projection as landcover map
     eft_clip_raster_path = os.path.join(
         intermediate_output_dir, _EFT_CLIP_FILE_PATTERN % file_suffix)
     eft_clip_task = task_graph.add_task(
         func=pygeoprocessing.warp_raster,
         args=(
-            args['ecosystem_functional_types_raster_path'],
-            landcover_raster_info['pixel_size'], eft_clip_raster_path,
+            args['eft_raster_path'],
+            eft_raster_info['pixel_size'], eft_clip_raster_path,
             'average'),
         kwargs={
-            'target_bb': landcover_raster_info['bounding_box'],
-            'target_projection_wkt': landcover_raster_info['projection_wkt'],
+            'target_bb': eft_raster_info['bounding_box'],
+            'target_projection_wkt': eft_raster_info['projection_wkt'],
             'working_dir': intermediate_output_dir},
         target_path_list=[eft_clip_raster_path],
         task_name='clip EFT raster')
-    eft_clip_task.join()
 
-    # calculate nesting_substrate_index[substrate] substrate maps
-    # N(x, n) = ln(l(x), n)
-    scenario_variables['nesting_substrate_index_path'] = {}
-    landcover_substrate_index_tasks = {}
-    for substrate in scenario_variables['substrate_list']:
-        nesting_substrate_index_path = os.path.join(
-            intermediate_output_dir,
-            _NESTING_SUBSTRATE_INDEX_FILEPATTERN % (substrate, file_suffix))
-        scenario_variables['nesting_substrate_index_path'][substrate] = (
-            nesting_substrate_index_path)
-
-        landcover_substrate_index_tasks[substrate] = task_graph.add_task(
-            task_name='reclassify_to_substrate_%s' % substrate,
-            func=pygeoprocessing.reclassify_raster,
-            args=(
-                (args['landcover_raster_path'], 1),
-                scenario_variables['landcover_substrate_index'][substrate],
-                nesting_substrate_index_path, gdal.GDT_Float32,
-                _INDEX_NODATA),
-            kwargs={'values_required': True},
-            target_path_list=[nesting_substrate_index_path])
-
-    # calculate farm_nesting_substrate_index[substrate] substrate maps
-    # dependent on farm substrate rasterized over N(x, n)
-    if farm_vector_path is not None:
-        scenario_variables['farm_nesting_substrate_index_path'] = (
-            collections.defaultdict(dict))
-        farm_substrate_rasterize_task_list = []
-        for substrate in scenario_variables['substrate_list']:
-            farm_substrate_id = (
-                _FARM_NESTING_SUBSTRATE_HEADER_PATTERN % substrate)
-            farm_nesting_substrate_index_path = os.path.join(
-                intermediate_output_dir,
-                _FARM_NESTING_SUBSTRATE_INDEX_FILEPATTERN % (
-                    substrate, file_suffix))
-            scenario_variables['farm_nesting_substrate_index_path'][
-                substrate] = farm_nesting_substrate_index_path
-            farm_substrate_rasterize_task_list.append(
-                task_graph.add_task(
-                    task_name='rasterize_nesting_substrate_%s' % substrate,
-                    func=_rasterize_vector_onto_base,
-                    args=(
-                        scenario_variables['nesting_substrate_index_path'][
-                            substrate],
-                        farm_vector_path, farm_substrate_id,
-                        farm_nesting_substrate_index_path),
-                    target_path_list=[farm_nesting_substrate_index_path],
-                    dependent_task_list=[
-                        landcover_substrate_index_tasks[substrate],
-                        reproject_farm_task]))
-
-    habitat_nesting_tasks = {}
-    scenario_variables['habitat_nesting_index_path'] = {}
+    # TODO: get unique eft codes
+    eft_code_list = task_graph.add_task(
+        func=_get_unique_values,
+        args=(eft_clip_raster_path,),
+        dependent_task_list=[eft_clip_task],
+        store_result=True,
+        task_name='get unique values from {eft_clip_raster_path}')
+    # TODO: calculate WDDI per species
+    mean_pixel_size = utils.mean_pixel_size_and_area(
+        eft_raster_info['pixel_size'])[0]
     for species in scenario_variables['species_list']:
-        # calculate habitat_nesting_index[species] HN(x, s) = max_n(N(x, n) ns(s,n))
-        if farm_vector_path is not None:
-            dependent_task_list = farm_substrate_rasterize_task_list
-            substrate_path_map = scenario_variables[
-                'farm_nesting_substrate_index_path']
-        else:
-            dependent_task_list = landcover_substrate_index_tasks.values()
-            substrate_path_map = scenario_variables[
-                'nesting_substrate_index_path']
+        alpha = (
+            scenario_variables['alpha_value'][species] /
+            mean_pixel_size)
+        kernel_path = os.path.join(
+            intermediate_output_dir, _KERNEL_FILE_PATTERN % (
+                alpha, file_suffix))
+        alpha_kernel_raster_task = task_graph.add_task(
+            task_name='decay_kernel_raster_%s' % alpha,
+            func=utils.exponential_decay_kernel_raster,
+            args=(alpha, kernel_path),
+            target_path_list=[kernel_path])
 
-        scenario_variables['habitat_nesting_index_path'][species] = (
-            os.path.join(
+        weighted_eft_raster_list = []
+        weighted_eft_task_list = []
+        for eft_code in eft_code_list.get():
+            if eft_code == eft_raster_info['nodata'][0]:
+                continue
+            eft_mask_raster_path = os.path.join(
                 intermediate_output_dir,
-                _HABITAT_NESTING_INDEX_FILE_PATTERN % (species, file_suffix)))
-
-        calculate_habitat_nesting_index_op = _CalculateHabitatNestingIndex(
-            substrate_path_map,
-            scenario_variables['species_substrate_index'][species],
-            scenario_variables['habitat_nesting_index_path'][species])
-
-        habitat_nesting_tasks[species] = task_graph.add_task(
-            task_name='calculate_habitat_nesting_%s' % species,
-            func=calculate_habitat_nesting_index_op,
-            dependent_task_list=dependent_task_list,
-            target_path_list=[
-                scenario_variables['habitat_nesting_index_path'][species]])
-
-    scenario_variables['relative_floral_abundance_index_path'] = {}
-    relative_floral_abudance_task_map = {}
-    for season in scenario_variables['season_list']:
-        # calculate relative_floral_abundance_index[season] per season
-        # RA(l(x), j)
-        relative_floral_abundance_index_path = os.path.join(
-            intermediate_output_dir,
-            _RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN % (
-                season, file_suffix))
-
-        relative_floral_abudance_task = task_graph.add_task(
-            task_name='reclassify_to_floral_abundance_%s' % season,
-            func=pygeoprocessing.reclassify_raster,
-            args=(
-                (args['landcover_raster_path'], 1),
-                scenario_variables['landcover_floral_resources'][season],
-                relative_floral_abundance_index_path, gdal.GDT_Float32,
-                _INDEX_NODATA),
-            kwargs={'values_required': True},
-            target_path_list=[relative_floral_abundance_index_path])
-
-        # if there's a farm, rasterize floral resources over the top
-        if farm_vector_path is not None:
-            farm_relative_floral_abundance_index_path = os.path.join(
-                intermediate_output_dir,
-                _FARM_RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN % (
-                    season, file_suffix))
-
-            # this is the shapefile header for the farm seasonal floral
-            # resources
-            farm_floral_resources_id = (
-                _FARM_FLORAL_RESOURCES_HEADER_PATTERN % season)
-
-            # override the relative floral task because we'll need this one
-            relative_floral_abudance_task = task_graph.add_task(
-                task_name='relative_floral_abudance_task_%s' % season,
-                func=_rasterize_vector_onto_base,
+                f'eft_mask_{species}_{eft_code}{file_suffix}.tif')
+            eft_mask_task = task_graph.add_task(
+                func=_mask_raster,
                 args=(
-                    relative_floral_abundance_index_path,
-                    farm_vector_path, farm_floral_resources_id,
-                    farm_relative_floral_abundance_index_path),
-                target_path_list=[
-                    farm_relative_floral_abundance_index_path],
-                dependent_task_list=[
-                    relative_floral_abudance_task, reproject_farm_task])
+                    eft_clip_raster_path, eft_code, eft_mask_raster_path),
+                dependent_task_list=[eft_clip_task],
+                target_path_list=[eft_mask_raster_path],
+                task_name=f'mask {species} {eft_code} for eft')
 
-            # override the relative floral abundance index path since we'll
-            # need the farm one
-            relative_floral_abundance_index_path = (
-                farm_relative_floral_abundance_index_path)
+            eft_weighted_path = os.path(
+                intermediate_output_dir,
+                f'weighted_eft_mask_{species}_{eft_code}{file_suffix}.tif')
+            create_efd_weighted_task = task_graph.add_task(
+                func=pygeoprocessing.convolve_2d,
+                args=(
+                    (eft_mask_raster_path, 1), (kernel_path, 1),
+                    eft_weighted_path),
+                kwargs={
+                    'ignore_nodata_and_edges': True,
+                    'mask_nodata': True,
+                    'normalize_kernel': False,
+                    },
+                dependent_task_list=[eft_mask_task, alpha_kernel_raster_task],
+                target_path_list=[eft_weighted_path],
+                task_name=f'create efd for {species}')
 
-        scenario_variables['relative_floral_abundance_index_path'][season] = (
-            relative_floral_abundance_index_path)
-        relative_floral_abudance_task_map[season] = (
-            relative_floral_abudance_task)
+            weighted_eft_raster_list.append(eft_weighted_path)
+            weighted_eft_task_list.append(create_efd_weighted_task)
+
+    task_graph.close()
+    task_graph.join()
+    return
+
+        # create EFD for species
+        efd_raster_path = os.path.join(
+            intermediate_output_dir, _EFD_FILE_PATTERN % (
+                species, file_suffix))
+        create_efd_species_task = task_graph.add_task(
+            func=pygeoprocessing.convolve_2d,
+            args=(
+                (eft_clip_raster_path, 1), (kernel_path, 1),
+                efd_raster_path),
+            kwargs={
+                'ignore_nodata_and_edges': True,
+                'mask_nodata': True,
+                'normalize_kernel': False,
+                },
+            dependent_task_list=[eft_clip_task],
+            task_name=f'create efd for {species}')
+
+    # TODO: zero out EFT substrate for farms.
+    # TODO: calculate per species nesting suitability rasters (WDDI mapped to range)
+    # TODO: calculate per species per season floral resources (WDDI mapped to range)
 
     scenario_variables['foraged_flowers_index_path'] = {}
     foraged_flowers_index_task_map = {}
@@ -509,7 +475,7 @@ def execute(args):
                 foraged_flowers_index_task_map[(species, season)]
                 for season in scenario_variables['season_list']])
 
-        landcover_pixel_size_tuple = landcover_raster_info['pixel_size']
+        landcover_pixel_size_tuple = eft_raster_info['pixel_size']
         try:
             landcover_mean_pixel_size = utils.mean_pixel_size_and_area(
                 landcover_pixel_size_tuple)[0]
@@ -520,6 +486,7 @@ def execute(args):
                 'Land Cover Raster has unequal x, y pixel sizes: %s. Using'
                 '%s as the mean pixel size.' % (
                     landcover_pixel_size_tuple, landcover_mean_pixel_size))
+
         # create a convolution kernel for the species flight range
         alpha = (
             scenario_variables['alpha_value'][species] /
@@ -550,6 +517,9 @@ def execute(args):
                 },
             dependent_task_list=[eft_clip_task],
             task_name=f'create efd for {species}')
+
+        # TODO: rather than calculating nesting habitat, use the efd for
+        #       nesting habitat
 
         # convolve FE with alpha_s
         floral_resources_index_path = os.path.join(
@@ -995,7 +965,7 @@ def _parse_scenario_variables(args):
     # ex substrate_to_header['cavity']['biophysical']
     substrate_to_header = collections.defaultdict(dict)
     for header in guild_headers:
-        match = re.match(_FORAGING_ACTIVITY_RE_PATTERN, header)
+        match = re.match(_FORAGING_ACTIVITY_RE, header)
         if match:
             season = match.group(1)
             season_to_header[season]['guild'] = match.group()

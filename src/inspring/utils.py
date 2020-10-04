@@ -325,8 +325,7 @@ def exponential_decay_kernel_raster(expected_distance, kernel_filepath):
             row_indices += numpy.float(row_offset - max_distance)
             col_indices += numpy.float(col_offset - max_distance)
 
-            kernel_index_distances = numpy.hypot(
-                row_indices, col_indices)
+            kernel_index_distances = numpy.hypot(row_indices, col_indices)
             kernel = numpy.where(
                 kernel_index_distances > max_distance, 0.0,
                 numpy.exp(-kernel_index_distances / expected_distance))
@@ -459,7 +458,7 @@ def build_lookup_from_csv(
     table = pandas.read_csv(
         table_path, sep=None, engine='python', encoding=encoding)
     header_row = list(table)
-    
+
     if to_lower:
         key_field = key_field.lower()
         header_row = [
