@@ -9,6 +9,7 @@ import re
 
 from osgeo import gdal
 from osgeo import ogr
+from osgeo import osr
 import pygeoprocessing
 import numpy
 import scipy.optimize
@@ -126,6 +127,44 @@ _EFT_CLIP_FILE_PATTERN = 'eft_clip%s.tif'
 _EFD_FILE_PATTERN = 'efd_%s%s.tif'
 
 
+def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
+    """Resample base to a square utm raster."""
+    raster_info = pygeoprocessing.get_raster_info(base_raster_path)
+    width, height = raster_info['raster_size']
+    base_srs = osr.SpatialReference()
+    base_srs.ImportFromWkt(raster_info['projection_wkt'])
+    LOGGER.debug(base_srs)
+    if base_srs.EPSGTreatsAsLatLong():
+        LOGGER.debug('LAT/LNG base')
+        centroid_x, centroid_y = gdal.ApplyGeoTransform(
+            raster_info['geotransform'],
+            raster_info['raster_size'][0]/2,
+            raster_info['raster_size'][1]/2)
+
+        utm_code = (numpy.floor((centroid_x + 180)/6) % 60) + 1
+        lat_code = 6 if centroid_y > 0 else 7
+        epsg_code = int('32%d%02d' % (lat_code, utm_code))
+        target_srs = osr.SpatialReference()
+        target_srs.ImportFromEPSG(epsg_code)
+    else:
+        target_srs = base_srs
+
+    transformed_bb = pygeoprocessing.transform_bounding_box(
+        raster_info['bounding_box'],
+        raster_info['projection_wkt'],
+        target_srs.ExportToWkt())
+
+    pixel_x = (transformed_bb[2]-transformed_bb[0])/width
+    pixel_y = (transformed_bb[3]-transformed_bb[1])/height
+    pixel_length = min(pixel_x, pixel_y)
+    target_pixel_size = (pixel_length*pixel_scale, -pixel_length*pixel_scale)
+
+    pygeoprocessing.warp_raster(
+        base_raster_path, target_pixel_size, target_raster_path, 'mode',
+        target_projection_wkt=target_srs.ExportToWkt(),
+        working_dir=os.path.dirname(target_raster_path))
+
+
 def _create_wddi(weighted_eft_raster_list, target_wddi_raster_path):
     """Create WDDI from given list of rasters.
 
@@ -144,13 +183,17 @@ def _create_wddi(weighted_eft_raster_list, target_wddi_raster_path):
     nodata = pygeoprocessing.get_raster_info(
         weighted_eft_raster_list[0])['nodata'][0]
 
-    def _wddi_op(array_list):
+    def _wddi_op(*array_list):
         """Calculate WDDI as described above."""
         result = numpy.zeros(array_list[0].shape)
-        nodata_mask = numpy.isclose(array_list[0], nodata)
+        LOGGER.debug(array_list[0])
+        nodata_mask = ~numpy.isfinite(array_list[0])
+        if nodata is not None:
+            nodata_mask |= numpy.isclose(
+                array_list[0], nodata)
         result[nodata_mask] = nodata
         for array in array_list:
-            result[nodata_mask] += array_list[nodata_mask]**2
+            result[nodata_mask] += array[nodata_mask]**2
         result[nodata_mask] = 1/result[nodata_mask]
         return result
 
@@ -192,7 +235,10 @@ def _get_unique_values(raster_path):
     """Return set of unique values in the single band raster path."""
     unique_value_set = set()
     for _, raster_block in pygeoprocessing.iterblocks((raster_path, 1)):
-        unique_value_set.update(numpy.unique(raster_block))
+        unique_values = numpy.unique(
+            raster_block[numpy.isfinite(raster_block)])
+        unique_value_set.update(unique_values)
+    LOGGER.info(f'unique values found in dataset: {unique_value_set}')
     return unique_value_set
 
 
@@ -338,6 +384,17 @@ def execute(args):
     task_graph = taskgraph.TaskGraph(work_token_dir, n_workers)
     eft_raster_info = pygeoprocessing.get_raster_info(
         args['eft_raster_path'])
+    # TODO: process the EFT raster so pixels are square and desired resolution
+    # clip the EFT raster to be the same size/projection as landcover map
+    eft_clip_raster_path = os.path.join(
+        intermediate_output_dir, _EFT_CLIP_FILE_PATTERN % file_suffix)
+    eft_clip_task = task_graph.add_task(
+        func=_resample_to_utm,
+        args=(args['eft_raster_path'], eft_clip_raster_path),
+        kwargs={'pixel_scale': args['pixel_scale']},
+        target_path_list=[eft_clip_raster_path],
+        task_name='clip EFT raster')
+
     if farm_vector_path is not None:
         # ensure farm vector is in the same projection as the eft map
         reproject_farm_task = task_graph.add_task(
@@ -348,23 +405,6 @@ def execute(args):
                 eft_raster_info['projection_wkt'], farm_vector_path),
             target_path_list=[farm_vector_path])
 
-    # TODO: process the EFT raster so pixels are square and desired resolution
-    # clip the EFT raster to be the same size/projection as landcover map
-    eft_clip_raster_path = os.path.join(
-        intermediate_output_dir, _EFT_CLIP_FILE_PATTERN % file_suffix)
-    eft_clip_task = task_graph.add_task(
-        func=pygeoprocessing.warp_raster,
-        args=(
-            args['eft_raster_path'],
-            eft_raster_info['pixel_size'], eft_clip_raster_path,
-            'average'),
-        kwargs={
-            'target_bb': eft_raster_info['bounding_box'],
-            'target_projection_wkt': eft_raster_info['projection_wkt'],
-            'working_dir': intermediate_output_dir},
-        target_path_list=[eft_clip_raster_path],
-        task_name='clip EFT raster')
-
     # TODO: get unique eft codes
     eft_code_list = task_graph.add_task(
         func=_get_unique_values,
@@ -372,9 +412,12 @@ def execute(args):
         dependent_task_list=[eft_clip_task],
         store_result=True,
         task_name='get unique values from {eft_clip_raster_path}')
-    # TODO: calculate WDDI per species
+    eft_code_list.join()
+    eft_clip_raster_info = pygeoprocessing.get_raster_info(
+        eft_clip_raster_path)
     mean_pixel_size = utils.mean_pixel_size_and_area(
-        eft_raster_info['pixel_size'])[0]
+        eft_clip_raster_info['pixel_size'])[0]
+    # TODO: calculate WDDI per species
     for species in scenario_variables['species_list']:
         alpha = (
             scenario_variables['alpha_value'][species] /
@@ -404,7 +447,7 @@ def execute(args):
                 target_path_list=[eft_mask_raster_path],
                 task_name=f'mask {species} {eft_code} for eft')
 
-            eft_weighted_path = os.path(
+            eft_weighted_path = os.path.join(
                 intermediate_output_dir,
                 f'weighted_eft_mask_{species}_{eft_code}{file_suffix}.tif')
             create_efd_weighted_task = task_graph.add_task(
@@ -436,23 +479,6 @@ def execute(args):
     task_graph.close()
     task_graph.join()
     return
-
-        # create EFD for species
-        efd_raster_path = os.path.join(
-            intermediate_output_dir, _EFD_FILE_PATTERN % (
-                species, file_suffix))
-        create_efd_species_task = task_graph.add_task(
-            func=pygeoprocessing.convolve_2d,
-            args=(
-                (eft_clip_raster_path, 1), (kernel_path, 1),
-                efd_raster_path),
-            kwargs={
-                'ignore_nodata_and_edges': True,
-                'mask_nodata': True,
-                'normalize_kernel': False,
-                },
-            dependent_task_list=[eft_clip_task],
-            task_name=f'create efd for {species}')
 
     # TODO: zero out EFT substrate for farms.
     # TODO: calculate per species nesting suitability rasters (WDDI mapped to range)
@@ -947,25 +973,19 @@ def _parse_scenario_variables(args):
 
     Parameter:
         args (dict): this is the args dictionary passed in to the `execute`
-            function, requires a 'guild_table_path', and
-            'landcover_biophysical_table_path' key and optional
+            function, requires a 'guild_table_path', and optional
             'farm_vector_path' key.
 
     Returns:
         A dictionary with the keys:
             * season_list (list of string)
-            * substrate_list (list of string)
             * species_list (list of string)
             * alpha_value[species] (float)
-            * landcover_substrate_index[substrate][landcover] (float)
-            * landcover_floral_resources[season][landcover] (float)
             * species_abundance[species] (string->float)
             * species_foraging_activity[(species, season)] (string->float)
-            * species_substrate_index[(species, substrate)] (tuple->float)
             * foraging_activity_index[(species, season)] (tuple->float)
     """
     guild_table_path = args['guild_table_path']
-    landcover_biophysical_table_path = args['landcover_biophysical_table_path']
     if 'farm_vector_path' in args and args['farm_vector_path'] != '':
         farm_vector_path = args['farm_vector_path']
     else:
@@ -986,35 +1006,16 @@ def _parse_scenario_variables(args):
                     header, guild_table_path,
                     guild_headers))
 
-    landcover_biophysical_table = utils.build_lookup_from_csv(
-        landcover_biophysical_table_path, 'lucode', to_lower=True)
-    biophysical_table_headers = (
-        list(landcover_biophysical_table.values())[0].keys())
-    for header in _EXPECTED_BIOPHYSICAL_HEADERS:
-        matches = re.findall(header, " ".join(biophysical_table_headers))
-        if len(matches) == 0:
-            raise ValueError(
-                "Expected a header in biophysical table that matched the "
-                "pattern '%s' but was unable to find one.  Here are all the "
-                "headers from %s: %s" % (
-                    header, landcover_biophysical_table_path,
-                    biophysical_table_headers))
-
     # this dict to dict will map seasons to guild/biophysical headers
     # ex season_to_header['spring']['guilds']
     season_to_header = collections.defaultdict(dict)
     # this dict to dict will map substrate types to guild/biophysical headers
     # ex substrate_to_header['cavity']['biophysical']
-    substrate_to_header = collections.defaultdict(dict)
     for header in guild_headers:
         match = re.match(_FORAGING_ACTIVITY_RE, header)
         if match:
             season = match.group(1)
             season_to_header[season]['guild'] = match.group()
-        match = re.match(_NESTING_SUITABILITY_PATTERN, header)
-        if match:
-            substrate = match.group(1)
-            substrate_to_header[substrate]['guild'] = match.group()
 
     farm_vector = None
     if farm_vector_path is not None:
@@ -1043,33 +1044,18 @@ def _parse_scenario_variables(args):
             if match:
                 season = match.group(1)
                 season_to_header[season]['farm'] = match.group()
-            match = re.match(_FARM_NESTING_SUBSTRATE_RE_PATTERN, header)
-            if match:
-                substrate = match.group(1)
-                substrate_to_header[substrate]['farm'] = match.group()
 
-    for header in biophysical_table_headers:
-        match = re.match(_FLORAL_RESOURCES_AVAILABLE_PATTERN, header)
-        if match:
-            season = match.group(1)
-            season_to_header[season]['biophysical'] = match.group()
-        match = re.match(_NESTING_SUBSTRATE_PATTERN, header)
-        if match:
-            substrate = match.group(1)
-            substrate_to_header[substrate]['biophysical'] = match.group()
-
-    for table_type, lookup_table in itertools.chain(
-            season_to_header.items(), substrate_to_header.items()):
-        if len(lookup_table) != 3 and farm_vector is not None:
+    for table_type, lookup_table in season_to_header.items():
+        if len(lookup_table) != 2 and farm_vector is not None:
             raise ValueError(
-                "Expected a biophysical, guild, and farm entry for '%s' but "
+                "Expected a guild, and farm entry for '%s' but "
                 "instead found only %s. Ensure there are corresponding "
                 "entries of '%s' in both the guilds, biophysical "
                 "table, and farm fields." % (
                     table_type, lookup_table, table_type))
-        elif len(lookup_table) != 2 and farm_vector is None:
+        elif len(lookup_table) != 1 and farm_vector is None:
             raise ValueError(
-                "Expected a biophysical, and guild entry for '%s' but "
+                "Expected a  guild entry for '%s' but "
                 "instead found only %s. Ensure there are corresponding "
                 "entries of '%s' in both the guilds and biophysical "
                 "table." % (
@@ -1090,8 +1076,6 @@ def _parse_scenario_variables(args):
     result = {}
     # * season_list (list of string)
     result['season_list'] = sorted(season_to_header)
-    # * substrate_list (list of string)
-    result['substrate_list'] = sorted(substrate_to_header)
     # * species_list (list of string)
     result['species_list'] = sorted(guild_table)
 
@@ -1121,35 +1105,6 @@ def _parse_scenario_variables(args):
             result['species_foraging_activity'][(species, season)] = (
                 guild_table[species][_FORAGING_ACTIVITY_PATTERN % season] /
                 float(total_activity))
-
-    # * landcover_substrate_index[substrate][landcover] (float)
-    result['landcover_substrate_index'] = collections.defaultdict(dict)
-    for raw_landcover_id in landcover_biophysical_table:
-        landcover_id = int(raw_landcover_id)
-        for substrate in result['substrate_list']:
-            substrate_biophysical_header = (
-                substrate_to_header[substrate]['biophysical'])
-            result['landcover_substrate_index'][substrate][landcover_id] = (
-                landcover_biophysical_table[landcover_id][
-                    substrate_biophysical_header])
-
-    # * landcover_floral_resources[season][landcover] (float)
-    result['landcover_floral_resources'] = collections.defaultdict(dict)
-    for raw_landcover_id in landcover_biophysical_table:
-        landcover_id = int(raw_landcover_id)
-        for season in result['season_list']:
-            floral_rources_header = season_to_header[season]['biophysical']
-            result['landcover_floral_resources'][season][landcover_id] = (
-                landcover_biophysical_table[landcover_id][
-                    floral_rources_header])
-
-    # * species_substrate_index[(species, substrate)] (tuple->float)
-    result['species_substrate_index'] = collections.defaultdict(dict)
-    for species in result['species_list']:
-        for substrate in result['substrate_list']:
-            substrate_guild_header = substrate_to_header[substrate]['guild']
-            result['species_substrate_index'][species][substrate] = (
-                guild_table[species][substrate_guild_header])
 
     # * foraging_activity_index[(species, season)] (tuple->float)
     result['foraging_activity_index'] = {}
