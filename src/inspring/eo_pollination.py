@@ -1,5 +1,4 @@
 """Earth Observation Driven Pollinator service model for inspring."""
-import collections
 import hashlib
 import inspect
 import logging
@@ -36,9 +35,9 @@ _EXPECTED_GUILD_HEADERS = [
     ]
 
 # replaced by (species, file_suffix)
-_NESTING_SUBSTRATE_INDEX_FILEPATTERN = 'nesting_substrate_index_%s%s.tif'
+_NESTING_SUBSTRATE_INDEX_FILE_PATTERN = 'nesting_substrate_index_%s%s.tif'
 # this is used if there is a farm polygon present
-_FARM_NESTING_SUBSTRATE_INDEX_FILEPATTERN = (
+_FARM_NESTING_SUBSTRATE_INDEX_FILE_PATTERN = (
     'farm_nesting_substrate_index_%s%s.tif')
 # replaced by (species, file_suffix)
 _HABITAT_NESTING_INDEX_FILE_PATTERN = 'habitat_nesting_index_%s%s.tif'
@@ -126,6 +125,55 @@ def _mkdir(dir_path):
     except OSError:
         pass
     return dir_path
+
+
+class BoundedSigmoid(object):
+    """Capture bounded sigmoid properties to pass to raster_calcualtor."""
+    def __init__(self, lower_bound, upper_bound):
+        """Create a sigmoid bounded between 0.1 and 0.9 by these params."""
+        self.lower_bound = lower_bound
+        self.upper_bound = upper_bound
+        self._sigmoid = BoundedSigmoid._sigmoid
+
+        a_val = 0.1
+        b_val = 0.9
+
+        self.min_root_val = scipy.optimize.newton(
+            lambda x: BoundedSigmoid._sigmoid(x, a_val), 0)
+        self.max_root_val = scipy.optimize.newton(
+            lambda x: BoundedSigmoid._sigmoid(x, b_val), 0)
+
+    @staticmethod
+    def _sigmoid(x, root=0.0):
+        """Calcualte sigmoid - root."""
+        return 1/(1+numpy.exp(-x)) - root
+
+    def __name__(self):
+        """Return source code of object for taskgraph."""
+        return inspect.getsource(BoundedSigmoid)
+
+    def __call__(self, array):
+        """Evaluate half sigmoid with given bounds.
+
+        We want lower_bound to be when sigmoid == a_val
+        We want upper_bound to be when sigmoid == b_val
+
+        Args:
+            array (numpy.array): arbitrary positive array
+
+        Returns:
+            when this value is 0, do a, when 1 do b
+        """
+        result = numpy.empty(array.shape)
+        result[:] = _INDEX_NODATA
+        valid_mask = (array >= 0) & numpy.isfinite(array)
+        val_interp = (
+            (array[valid_mask] - self.lower_bound) /
+            (self.upper_bound - self.lower_bound))
+        ab_interp = (
+            self.min_root_val*(1-val_interp)+self.max_root_val*(val_interp))
+        result[valid_mask] = BoundedSigmoid._sigmoid(ab_interp)
+        return result
 
 
 def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
@@ -263,37 +311,6 @@ def _get_unique_values(raster_path):
     return unique_value_set
 
 
-def _create_bounded_sigmoid(lower_bound, upper_bound):
-    """Create a sigmoid bounded between 0.1 and 0.9.
-
-    Args:
-        lower_bound (numeric): a number > 0
-        upper_bound (numeric): a number > lower_bound
-
-    Returns:
-        function that takes a numpy array and evaluates the bounded sigmoid.
-    """
-    def _sigmoid(x, root=0.0):
-        """Calculate sigmoid - root."""
-        return 1/(1+numpy.exp(-x)) - root
-
-    a_val = 0.1
-    b_val = 0.9
-
-    min_root_val = scipy.optimize.newton(lambda x: _sigmoid(x, a_val), 0)
-    max_root_val = scipy.optimize.newton(lambda x: _sigmoid(x, b_val), 0)
-
-    def application_sigmoid(x):
-        # we want lower_bound to be when sigmoid == a_val
-        # we want upper_bound to be when sigmoid == b_val
-        # when this value is 0, do a, when 1 do b
-        val_interp = (x - lower_bound) / (upper_bound - lower_bound)
-        ab_interp = min_root_val*(1-val_interp)+max_root_val*(val_interp)
-        return _sigmoid(ab_interp)
-
-    return application_sigmoid
-
-
 def execute(args):
     """InVEST Pollination Model.
 
@@ -389,7 +406,6 @@ def execute(args):
     scenario_variables = _parse_scenario_variables(args)
 
     LOGGER.debug(f'these are the scenario_variables: {scenario_variables}')
-    return
 
     try:
         n_workers = int(args['n_workers'])
@@ -459,7 +475,7 @@ def execute(args):
             scenario_variables['alpha_value'][species] /
             mean_pixel_size)
         kernel_path = os.path.join(
-            intermediate_output_dir, _KERNEL_FILE_PATTERN % (
+            efd_mask_dir, _KERNEL_FILE_PATTERN % (
                 alpha, file_suffix))
         alpha_kernel_raster_task = task_graph.add_task(
             task_name='decay_kernel_raster_%s' % alpha,
@@ -495,50 +511,65 @@ def execute(args):
 
         wddi_raster_path = os.path.join(
             intermediate_output_dir, f'wddi_{species}{file_suffix}.tif')
-        task_graph.add_task(
+        create_wddi_task = task_graph.add_task(
             func=_create_wddi,
             args=(weighted_eft_raster_list, wddi_raster_path),
             dependent_task_list=weighted_eft_task_list,
             target_path_list=[wddi_raster_path],
             task_name=f'create wddi for {species}')
 
-    task_graph.close()
-    task_graph.join()
-    return
-
     # TODO: zero out EFT substrate for farms.
     # TODO: calculate per species nesting suitability rasters (WDDI mapped to range)
     # TODO: calculate per species per season floral resources (WDDI mapped to range)
 
-    scenario_variables['foraged_flowers_index_path'] = {}
-    foraged_flowers_index_task_map = {}
-    for species in scenario_variables['species_list']:
-        for season in scenario_variables['season_list']:
-            # calculate foraged_flowers_species_season = RA(l(x),j)*fa(s,j)
-            foraged_flowers_index_path = os.path.join(
-                intermediate_output_dir,
-                _FORAGED_FLOWERS_INDEX_FILE_PATTERN % (
-                    species, season, file_suffix))
-            relative_abundance_path = (
-                scenario_variables['relative_floral_abundance_index_path'][
-                    season])
-            mult_by_scalar_op = _MultByScalar(
-                scenario_variables['species_foraging_activity'][
-                    (species, season)])
-            foraged_flowers_index_task_map[(species, season)] = (
-                task_graph.add_task(
-                    task_name='calculate_foraged_flowers_%s_%s' % (
-                        species, season),
-                    func=pygeoprocessing.raster_calculator,
-                    args=(
-                        [(relative_abundance_path, 1)],
-                        mult_by_scalar_op, foraged_flowers_index_path,
-                        gdal.GDT_Float32, _INDEX_NODATA),
-                    dependent_task_list=[
-                        relative_floral_abudance_task_map[season]],
-                    target_path_list=[foraged_flowers_index_path]))
-            scenario_variables['foraged_flowers_index_path'][
-                (species, season)] = foraged_flowers_index_path
+        scenario_variables['foraged_flowers_index_path'] = {}
+        foraged_flowers_index_task_map = {}
+        for biophysical_type, file_pattern in [
+                ('floral_resources', _FORAGED_FLOWERS_INDEX_FILE_PATTERN),
+                ('nesting_suitability', _NESTING_SUBSTRATE_INDEX_FILE_PATTERN)]:
+            # TODO: map the EFD to min/sufficient half sigmoid response
+            biophysical_raster_path = os.path.join(
+                intermediate_output_dir, file_pattern % (species, file_suffix))
+
+            efd_min = scenario_variables[
+                f'{biophysical_type}_efd_min'][species]
+            efd_sufficient = scenario_variables[
+                f'{biophysical_type}_efd_sufficient'][species]
+
+            task_graph.add_task(
+                func=pygeoprocessing.raster_calculator,
+                args=(
+                    [(wddi_raster_path, 1)],
+                    BoundedSigmoid(efd_min, efd_sufficient),
+                    biophysical_raster_path, gdal.GDT_Float32, _INDEX_NODATA),
+                target_path_list=[biophysical_raster_path],
+                dependent_task_list=[create_wddi_task],
+                task_name=f'create_wddi for {biophysical_type}')
+
+            # calculate
+            # pollinator_supply_index[species] PS(x,s) = FR(x,s) * HN(x,s) * sa(s)
+            pollinator_supply_index_path = os.path.join(
+                output_dir, _POLLINATOR_SUPPLY_FILE_PATTERN % (
+                    species, file_suffix))
+            ps_index_op = _PollinatorSupplyIndexOp(
+                scenario_variables['species_abundance'][species])
+            pollinator_supply_task = task_graph.add_task(
+                task_name='calculate_pollinator_supply_%s' % species,
+                func=pygeoprocessing.raster_calculator,
+                args=(
+                    [(scenario_variables['habitat_nesting_index_path'][species],
+                      1),
+                     (floral_resources_index_path, 1)], ps_index_op,
+                    pollinator_supply_index_path, gdal.GDT_Float32,
+                    _INDEX_NODATA),
+                dependent_task_list=[
+                    floral_resources_task, habitat_nesting_tasks[species]],
+                target_path_list=[pollinator_supply_index_path])
+
+    task_graph.close()
+    task_graph.join()
+    task_graph = None
+    return
 
     pollinator_abundance_path_map = {}
     pollinator_abundance_task_map = {}
