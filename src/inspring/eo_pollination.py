@@ -2,7 +2,6 @@
 import collections
 import hashlib
 import inspect
-import itertools
 import logging
 import os
 import re
@@ -22,16 +21,14 @@ LOGGER = logging.getLogger(__name__)
 _INDEX_NODATA = -1.0
 
 # These are patterns expected in the guilds table re expressions are season
-_FLORAL_RESOURCES_EFD_MIN_RE = 'floral_resources_([^_]+)_efd_min'
-_FLORAL_RESOURCES_EFD_SUFFICIENT_RE = 'floral_resources_([^_]+)_efd_sufficient'
-# replace with season
-_FORAGING_ACTIVITY_PATTERN = 'foraging_activity_%s_index'
-_FORAGING_ACTIVITY_RE = _FORAGING_ACTIVITY_PATTERN % '([^_]+)'
+_FLORAL_RESOURCES_EFD_MIN_RE = 'floral_resources_efd_min'
+_FLORAL_RESOURCES_EFD_SUFFICIENT_RE = 'floral_resources_efd_sufficient'
+_FORAGING_ACTIVITY_PATTERN = 'foraging_activity_index'
 _RELATIVE_SPECIES_ABUNDANCE_FIELD = 'relative_abundance'
 _ALPHA_HEADER = 'alpha'
 _EXPECTED_GUILD_HEADERS = [
     'species',
-    _FORAGING_ACTIVITY_RE,
+    _FORAGING_ACTIVITY_PATTERN,
     _ALPHA_HEADER,
     _RELATIVE_SPECIES_ABUNDANCE_FIELD,
     'nesting_suitability_efd_min',
@@ -47,12 +44,12 @@ _FARM_NESTING_SUBSTRATE_INDEX_FILEPATTERN = (
     'farm_nesting_substrate_index_%s%s.tif')
 # replaced by (species, file_suffix)
 _HABITAT_NESTING_INDEX_FILE_PATTERN = 'habitat_nesting_index_%s%s.tif'
-# replaced by (season, file_suffix)
+# replaced by (file_suffix)
 _RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN = (
-    'relative_floral_abundance_index_%s%s.tif')
+    'relative_floral_abundance_index_%s.tif')
 # this is used if there's a farm polygon present
 _FARM_RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN = (
-    'farm_relative_floral_abundance_index_%s%s.tif')
+    'farm_relative_floral_abundance_index_%s.tif')
 # used as an intermediate step for floral resources calculation
 # replace (species, file_suffix)
 _LOCAL_FORAGING_EFFECTIVENESS_FILE_PATTERN = (
@@ -67,22 +64,22 @@ _PROJECTED_FARM_VECTOR_FILE_PATTERN = 'reprojected_farm_vector%s.shp'
 # used to store the 2D decay kernel for a given distance replace
 # (alpha, file suffix)
 _KERNEL_FILE_PATTERN = 'kernel_%f%s.tif'
-# PA(x,s,j) replace (species, season, file_suffix)
-_POLLINATOR_ABUNDANCE_FILE_PATTERN = 'pollinator_abundance_%s_%s%s.tif'
-# PAT(x,j) total pollinator abundance per season replace (season, file_suffix)
+# PA(x,s,j) replace (species, file_suffix)
+_POLLINATOR_ABUNDANCE_FILE_PATTERN = 'pollinator_abundance_%s_%s.tif'
+# PAT(x,j) total pollinator abundance replace (file_suffix)
 _TOTAL_POLLINATOR_ABUNDANCE_FILE_PATTERN = (
-    'total_pollinator_abundance_%s%s.tif')
-# used for RA(l(x),j)*fa(s,j) replace (species, season, file_suffix)
+    'total_pollinator_abundance_%s.tif')
+# used for RA(l(x),j)*fa(s,j) replace (species, file_suffix)
 _FORAGED_FLOWERS_INDEX_FILE_PATTERN = (
-    'foraged_flowers_index_%s_%s%s.tif')
+    'foraged_flowers_index_%s_%s.tif')
 # used for convolving PS over alpha s replace (species, file_suffix)
 _CONVOLVE_PS_FILE_PATH = 'convolve_ps_%s%s.tif'
-# half saturation raster replace (season, file_suffix)
+# half saturation raster replace (file_suffix)
 _HALF_SATURATION_FILE_PATTERN = 'half_saturation_%s%s.tif'
 # blank raster as a basis to rasterize on replace (file_suffix)
 _BLANK_RASTER_FILE_PATTERN = 'blank_raster%s.tif'
-# raster to hold seasonal farm pollinator replace (season, file_suffix)
-_FARM_POLLINATOR_SEASON_FILE_PATTERN = 'farm_pollinator_%s%s.tif'
+# raster to hold farm pollinator replace (file_suffix)
+_FARM_POLLINATOR_FILE_PATTERN = 'farm_pollinator_%s.tif'
 # total farm pollinators replace (file_suffix)
 _FARM_POLLINATOR_FILE_PATTERN = 'farm_pollinators%s.tif'
 # managed pollinator indexes replace (file_suffix)
@@ -100,31 +97,38 @@ _WILD_POLLINATOR_FARM_YIELD_FIELD_ID = 'y_wild'
 # output field for proportion of wild pollinators over the pollinator
 # dependent part of the yield
 _POLLINATOR_PROPORTION_FARM_YIELD_FIELD_ID = 'pdep_y_w'
-# output field for pollinator abundance on farm for the season of pollination
+# output field for pollinator abundance on farm
 _POLLINATOR_ABUDNANCE_FARM_FIELD_ID = 'p_abund'
-# expected pattern for seasonal floral resources in input shapefile (season)
-_FARM_FLORAL_RESOURCES_HEADER_PATTERN = 'fr_%s'
-# regular expression version of _FARM_FLORAL_RESOURCES_PATTERN
-_FARM_FLORAL_RESOURCES_PATTERN = (
-    _FARM_FLORAL_RESOURCES_HEADER_PATTERN % '([^_]+)')
-# expected pattern for nesting substrate in input shapfile (substrate)
-_FARM_NESTING_SUBSTRATE_HEADER_PATTERN = 'n_%s'
-# regular expression version of _FARM_NESTING_SUBSTRATE_HEADER_PATTERN
-_FARM_NESTING_SUBSTRATE_RE_PATTERN = (
-    _FARM_NESTING_SUBSTRATE_HEADER_PATTERN % '([^_]+)')
+# expected pattern for seasonal floral resources in input shapefile
+_FARM_FLORAL_RESOURCES_HEADER_PATTERN = 'fr'
+# expected pattern for nesting substrate in input shapfile
+_FARM_NESTING_SUBSTRATE_HEADER_PATTERN = 'n'
 _HALF_SATURATION_FARM_HEADER = 'half_sat'
 _CROP_POLLINATOR_DEPENDENCE_FIELD = 'p_dep'
 _MANAGED_POLLINATORS_FIELD = 'p_managed'
 _FARM_SEASON_FIELD = 'season'
 _EXPECTED_FARM_HEADERS = [
     _FARM_SEASON_FIELD, 'crop_type', _HALF_SATURATION_FARM_HEADER,
-    _MANAGED_POLLINATORS_FIELD, _FARM_FLORAL_RESOURCES_PATTERN,
-    _FARM_NESTING_SUBSTRATE_RE_PATTERN, _CROP_POLLINATOR_DEPENDENCE_FIELD]
+    _MANAGED_POLLINATORS_FIELD, _FARM_FLORAL_RESOURCES_HEADER_PATTERN,
+    _FARM_NESTING_SUBSTRATE_HEADER_PATTERN, _CROP_POLLINATOR_DEPENDENCE_FIELD]
 
 # used for clipping EFT to landcover replace (file_suffix)
 _EFT_CLIP_FILE_PATTERN = 'eft_clip%s.tif'
 # used for creating EFD from EFT replace (species, file_suffix)
 _EFD_FILE_PATTERN = 'efd_%s%s.tif'
+
+
+def _mkdir(dir_path):
+    """Create dir_path if it doesn't exist and return it.
+
+    Returns:
+        dir_path
+    """
+    try:
+        os.makedirs(dir_path)
+    except OSError:
+        pass
+    return dir_path
 
 
 def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
@@ -182,19 +186,38 @@ def _create_wddi(weighted_eft_raster_list, target_wddi_raster_path):
     """
     nodata = pygeoprocessing.get_raster_info(
         weighted_eft_raster_list[0])['nodata'][0]
+    n_types = len(weighted_eft_raster_list)
 
     def _wddi_op(*array_list):
         """Calculate WDDI as described above."""
         result = numpy.zeros(array_list[0].shape)
-        LOGGER.debug(array_list[0])
         nodata_mask = ~numpy.isfinite(array_list[0])
         if nodata is not None:
             nodata_mask |= numpy.isclose(
                 array_list[0], nodata)
-        result[nodata_mask] = nodata
+            result[nodata_mask] = nodata
+        sum_valid = numpy.zeros(result.shape)
+        # assume zeros everywhere then when we encounter a non-zero flip it off
+        zero_mask = numpy.ones(result.shape, dtype=numpy.bool)
         for array in array_list:
-            result[nodata_mask] += array[nodata_mask]**2
-        result[nodata_mask] = 1/result[nodata_mask]
+            sum_valid[~nodata_mask] += array[~nodata_mask]
+            zero_mask &= numpy.isclose(array, 0.0)
+
+        # do this so we don't get a divide error, we'll zero it out later
+        sum_valid[zero_mask] = 1.0
+
+        for array in array_list:
+            result[~nodata_mask] += (
+                array[~nodata_mask]/sum_valid[~nodata_mask])**2
+
+        result[zero_mask] = nodata
+        valid_mask = ~(nodata_mask | zero_mask)
+        result[valid_mask] = 1/result[valid_mask]
+        # since these come from convolutions there can be numerical noise that
+        # explodes values, hence if it's an order of magnitude greater than
+        # the biggest expected value, we set to 0.0 because it must be
+        # numerical noise
+        result[result > n_types**2] = 0.0
         return result
 
     pygeoprocessing.raster_calculator(
@@ -224,6 +247,7 @@ def _mask_raster(base_raster_path, unique_value, target_raster_path):
         result[base_array == unique_value] = 1
         if nodata is not None:
             result[numpy.isclose(base_array, nodata)] = local_nodata
+        result[~numpy.isfinite(base_array)] = local_nodata
         return result
 
     pygeoprocessing.raster_calculator(
@@ -307,10 +331,9 @@ def execute(args):
                     with values in the range [0.0, 1.0] indicating the
                     suitability of the given species to nest in a particular
                     substrate.
-                * one or more columns matching _FORAGING_ACTIVITY_RE
+                * a column matching _FORAGING_ACTIVITY_RE
                     with values in the range [0.0, 1.0] indicating the
-                    relative level of foraging activity for that species
-                    during a particular season.
+                    relative level of foraging activity for that species.
                 * _ALPHA_HEADER the sigma average flight distance of that bee
                     species in meters.
                 * 'relative_abundance': a weight indicating the relative
@@ -323,7 +346,6 @@ def execute(args):
 
             The layer must have at least the following fields:
 
-            * season (string): season in which the farm needs pollination
             * crop_type (string): a text field to identify the crop type for
                 summary statistics.
             * half_sat (float): a real in the range [0.0, 1.0] representing
@@ -333,10 +355,8 @@ def execute(args):
                 representing the proportion of yield dependent on pollinators.
             * p_managed (float): proportion of pollinators that come from
                 non-native/managed hives.
-            * fr_[season] (float): one or more fields that match this pattern
-                such that `season` also matches the season headers in the
-                biophysical and guild table.  Any areas that overlap the
-                landcover map will replace seasonal floral resources with
+            * fr (float): Any areas that overlap the
+                landcover map will replace floral resources with
                 this value.  Ranges from 0..1.
             * n_[substrate] (float): One or more fields that match this
                 pattern such that `substrate` also matches the nesting
@@ -417,7 +437,26 @@ def execute(args):
         eft_clip_raster_path)
     mean_pixel_size = utils.mean_pixel_size_and_area(
         eft_clip_raster_info['pixel_size'])[0]
+
     # TODO: calculate WDDI per species
+    efd_mask_dir = _mkdir(os.path.join(intermediate_output_dir, 'eft_masks'))
+
+    eft_to_raster_task_map = {}
+    for eft_code in eft_code_list.get():
+        if eft_code == eft_raster_info['nodata'][0]:
+            continue
+        eft_mask_raster_path = os.path.join(
+            efd_mask_dir, f'eft_mask_{eft_code}{file_suffix}.tif')
+        eft_mask_task = task_graph.add_task(
+            func=_mask_raster,
+            args=(
+                eft_clip_raster_path, eft_code, eft_mask_raster_path),
+            dependent_task_list=[eft_clip_task],
+            target_path_list=[eft_mask_raster_path],
+            task_name=f'mask {eft_code} for eft')
+        eft_to_raster_task_map[eft_code] = (
+            eft_mask_raster_path, eft_mask_task)
+
     for species in scenario_variables['species_list']:
         alpha = (
             scenario_variables['alpha_value'][species] /
@@ -436,20 +475,11 @@ def execute(args):
         for eft_code in eft_code_list.get():
             if eft_code == eft_raster_info['nodata'][0]:
                 continue
-            eft_mask_raster_path = os.path.join(
-                intermediate_output_dir,
-                f'eft_mask_{species}_{eft_code}{file_suffix}.tif')
-            eft_mask_task = task_graph.add_task(
-                func=_mask_raster,
-                args=(
-                    eft_clip_raster_path, eft_code, eft_mask_raster_path),
-                dependent_task_list=[eft_clip_task],
-                target_path_list=[eft_mask_raster_path],
-                task_name=f'mask {species} {eft_code} for eft')
-
             eft_weighted_path = os.path.join(
-                intermediate_output_dir,
+                efd_mask_dir,
                 f'weighted_eft_mask_{species}_{eft_code}{file_suffix}.tif')
+            eft_mask_raster_path, eft_mask_task = \
+                eft_to_raster_task_map[eft_code]
             create_efd_weighted_task = task_graph.add_task(
                 func=pygeoprocessing.convolve_2d,
                 args=(
@@ -463,7 +493,6 @@ def execute(args):
                 dependent_task_list=[eft_mask_task, alpha_kernel_raster_task],
                 target_path_list=[eft_weighted_path],
                 task_name=f'create efd for {species}')
-
             weighted_eft_raster_list.append(eft_weighted_path)
             weighted_eft_task_list.append(create_efd_weighted_task)
 
