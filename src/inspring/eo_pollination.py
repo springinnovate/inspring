@@ -23,12 +23,10 @@ _INDEX_NODATA = -1.0
 # These are patterns expected in the guilds table re expressions are season
 _FLORAL_RESOURCES_EFD_MIN_RE = 'floral_resources_efd_min'
 _FLORAL_RESOURCES_EFD_SUFFICIENT_RE = 'floral_resources_efd_sufficient'
-_FORAGING_ACTIVITY_PATTERN = 'foraging_activity_index'
 _RELATIVE_SPECIES_ABUNDANCE_FIELD = 'relative_abundance'
 _ALPHA_HEADER = 'alpha'
 _EXPECTED_GUILD_HEADERS = [
     'species',
-    _FORAGING_ACTIVITY_PATTERN,
     _ALPHA_HEADER,
     _RELATIVE_SPECIES_ABUNDANCE_FIELD,
     'nesting_suitability_efd_min',
@@ -106,9 +104,8 @@ _FARM_NESTING_SUBSTRATE_HEADER_PATTERN = 'n'
 _HALF_SATURATION_FARM_HEADER = 'half_sat'
 _CROP_POLLINATOR_DEPENDENCE_FIELD = 'p_dep'
 _MANAGED_POLLINATORS_FIELD = 'p_managed'
-_FARM_SEASON_FIELD = 'season'
 _EXPECTED_FARM_HEADERS = [
-    _FARM_SEASON_FIELD, 'crop_type', _HALF_SATURATION_FARM_HEADER,
+    'crop_type', _HALF_SATURATION_FARM_HEADER,
     _MANAGED_POLLINATORS_FIELD, _FARM_FLORAL_RESOURCES_HEADER_PATTERN,
     _FARM_NESTING_SUBSTRATE_HEADER_PATTERN, _CROP_POLLINATOR_DEPENDENCE_FIELD]
 
@@ -331,9 +328,6 @@ def execute(args):
                     with values in the range [0.0, 1.0] indicating the
                     suitability of the given species to nest in a particular
                     substrate.
-                * a column matching _FORAGING_ACTIVITY_RE
-                    with values in the range [0.0, 1.0] indicating the
-                    relative level of foraging activity for that species.
                 * _ALPHA_HEADER the sigma average flight distance of that bee
                     species in meters.
                 * 'relative_abundance': a weight indicating the relative
@@ -393,6 +387,9 @@ def execute(args):
     # and possibly a farm polygon.  This function will also raise an exception
     # if any of the inputs are malformed.
     scenario_variables = _parse_scenario_variables(args)
+
+    LOGGER.debug(f'these are the scenario_variables: {scenario_variables}')
+    return
 
     try:
         n_workers = int(args['n_workers'])
@@ -1035,17 +1032,6 @@ def _parse_scenario_variables(args):
                     header, guild_table_path,
                     guild_headers))
 
-    # this dict to dict will map seasons to guild/biophysical headers
-    # ex season_to_header['spring']['guilds']
-    season_to_header = collections.defaultdict(dict)
-    # this dict to dict will map substrate types to guild/biophysical headers
-    # ex substrate_to_header['cavity']['biophysical']
-    for header in guild_headers:
-        match = re.match(_FORAGING_ACTIVITY_RE, header)
-        if match:
-            season = match.group(1)
-            season_to_header[season]['guild'] = match.group()
-
     farm_vector = None
     if farm_vector_path is not None:
         LOGGER.info('Checking that farm polygon has expected headers')
@@ -1068,50 +1054,25 @@ def _parse_scenario_variables(args):
                     "Got these headers instead %s" % (
                         header, farm_vector_path, farm_headers))
 
-        for header in farm_headers:
-            match = re.match(_FARM_FLORAL_RESOURCES_PATTERN, header)
-            if match:
-                season = match.group(1)
-                season_to_header[season]['farm'] = match.group()
-
-    for table_type, lookup_table in season_to_header.items():
-        if len(lookup_table) != 2 and farm_vector is not None:
-            raise ValueError(
-                "Expected a guild, and farm entry for '%s' but "
-                "instead found only %s. Ensure there are corresponding "
-                "entries of '%s' in both the guilds, biophysical "
-                "table, and farm fields." % (
-                    table_type, lookup_table, table_type))
-        elif len(lookup_table) != 1 and farm_vector is None:
-            raise ValueError(
-                "Expected a  guild entry for '%s' but "
-                "instead found only %s. Ensure there are corresponding "
-                "entries of '%s' in both the guilds and biophysical "
-                "table." % (
-                    table_type, lookup_table, table_type))
-
-    if farm_vector_path is not None:
-        farm_season_set = set()
-        for farm_feature in farm_layer:
-            farm_season_set.add(farm_feature.GetField(_FARM_SEASON_FIELD))
-
-        if len(farm_season_set.difference(season_to_header)) > 0:
-            raise ValueError(
-                "Found seasons in farm polygon that were not specified in the"
-                "biophysical table: %s.  Expected only these: %s" % (
-                    farm_season_set.difference(season_to_header),
-                    season_to_header))
-
     result = {}
-    # * season_list (list of string)
-    result['season_list'] = sorted(season_to_header)
     # * species_list (list of string)
     result['species_list'] = sorted(guild_table)
-
     result['alpha_value'] = dict()
+    result['nesting_suitability_efd_min'] = dict()
+    result['nesting_suitability_efd_sufficient'] = dict()
+    result['floral_resources_efd_min'] = dict()
+    result['floral_resources_efd_sufficient'] = dict()
     for species in result['species_list']:
         result['alpha_value'][species] = float(
             guild_table[species][_ALPHA_HEADER])
+        result['nesting_suitability_efd_min'][species] = float(
+            guild_table[species]['nesting_suitability_efd_min'])
+        result['nesting_suitability_efd_sufficient'][species] = float(
+            guild_table[species]['nesting_suitability_efd_sufficient'])
+        result['floral_resources_efd_min'][species] = float(
+            guild_table[species]['floral_resources_efd_min'])
+        result['floral_resources_efd_sufficient'][species] = float(
+            guild_table[species]['floral_resources_efd_sufficient'])
 
     # * species_abundance[species] (string->float)
     total_relative_abundance = numpy.sum([
@@ -1122,27 +1083,6 @@ def _parse_scenario_variables(args):
         result['species_abundance'][species] = (
             guild_table[species][_RELATIVE_SPECIES_ABUNDANCE_FIELD] /
             float(total_relative_abundance))
-
-    # map the relative foraging activity of a species during a certain season
-    # (species, season)
-    result['species_foraging_activity'] = dict()
-    for species in result['species_list']:
-        total_activity = numpy.sum([
-            guild_table[species][_FORAGING_ACTIVITY_PATTERN % season]
-            for season in result['season_list']])
-        for season in result['season_list']:
-            result['species_foraging_activity'][(species, season)] = (
-                guild_table[species][_FORAGING_ACTIVITY_PATTERN % season] /
-                float(total_activity))
-
-    # * foraging_activity_index[(species, season)] (tuple->float)
-    result['foraging_activity_index'] = {}
-    for species in result['species_list']:
-        for season in result['season_list']:
-            key = (species, season)
-            foraging_biophyiscal_header = season_to_header[season]['guild']
-            result['foraging_activity_index'][key] = (
-                guild_table[species][foraging_biophyiscal_header])
 
     return result
 
