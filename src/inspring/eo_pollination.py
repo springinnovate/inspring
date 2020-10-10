@@ -75,8 +75,8 @@ _CONVOLVE_PS_FILE_PATH = 'convolve_ps_%s%s.tif'
 _HALF_SATURATION_FILE_PATTERN = 'half_saturation%s.tif'
 # blank raster as a basis to rasterize on replace (file_suffix)
 _BLANK_RASTER_FILE_PATTERN = 'blank_raster%s.tif'
-# raster to hold farm pollinator replace (species, file_suffix)
-_FARM_POLLINATOR_FILE_PATTERN = 'farm_pollinator_%s%s.tif'
+# raster to hold farm pollinator replace (file_suffix)
+_FARM_POLLINATOR_FILE_PATTERN = 'farm_pollinator%s.tif'
 # managed pollinator indexes replace (file_suffix)
 _MANAGED_POLLINATOR_FILE_PATTERN = 'managed_pollinators%s.tif'
 # total pollinator raster replace (file_suffix)
@@ -662,6 +662,19 @@ def execute(args):
             _HALF_SATURATION_FARM_HEADER, half_saturation_raster_path),
         dependent_task_list=[blank_raster_task],
         target_path_list=[half_saturation_raster_path])
+
+    farm_pollinator_path = os.path.join(
+        intermediate_output_dir, _FARM_POLLINATOR_FILE_PATTERN % file_suffix)
+    task_graph.add_task(
+        task_name='calculate on farm pollinator',
+        func=pygeoprocessing.raster_calculator,
+        args=(
+            [(half_saturation_raster_path, 1),
+             (global_pollinator_abundance_raster_path, 1)],
+            _OnFarmPollinatorAbundance(), farm_pollinator_path,
+            gdal.GDT_Float32, _INDEX_NODATA),
+        dependent_task_list=[half_saturation_task, global_abundance_task],
+        target_path_list=[farm_pollinator_path])
 
     task_graph.close()
     task_graph.join()
