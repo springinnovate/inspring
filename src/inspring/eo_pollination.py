@@ -73,6 +73,7 @@ _FORAGED_FLOWERS_INDEX_FILE_PATTERN = (
 _CONVOLVE_PS_FILE_PATH = 'convolve_ps_%s%s.tif'
 # half saturation raster replace (file_suffix)
 _HALF_SATURATION_FILE_PATTERN = 'half_saturation%s.tif'
+_POLLINATOR_ABUDNANCE_FARM_FIELD_ID = 'pol_abundance'
 # blank raster as a basis to rasterize on replace (file_suffix)
 _BLANK_RASTER_FILE_PATTERN = 'blank_raster%s.tif'
 # raster to hold farm pollinator replace (file_suffix)
@@ -84,14 +85,11 @@ _TOTAL_POLLINATOR_YIELD_FILE_PATTERN = 'total_pollinator_yield%s.tif'
 # wild pollinator raster replace (file_suffix)
 _WILD_POLLINATOR_YIELD_FILE_PATTERN = 'wild_pollinator_yield%s.tif'
 # final aggregate farm shapefile file pattern replace (file_suffix)
-_FARM_VECTOR_RESULT_FILE_PATTERN = 'farm_results%s.shp'
+_FARM_VECTOR_RESULT_FILE_PATTERN = 'farm_results%s.gpkg'
 # output field on target shapefile if farms are enabled
 _TOTAL_FARM_YIELD_FIELD_ID = 'y_tot'
 # output field for wild pollinators on farms if farms are enabled
 _WILD_POLLINATOR_FARM_YIELD_FIELD_ID = 'y_wild'
-# output field for proportion of wild pollinators over the pollinator
-# dependent part of the yield
-_POLLINATOR_PROPORTION_FARM_YIELD_FIELD_ID = 'pdep_y_w'
 _HALF_SATURATION_FARM_HEADER = 'half_sat'
 _CROP_POLLINATOR_DEPENDENCE_FIELD = 'p_dep'
 _MANAGED_POLLINATORS_FIELD = 'p_managed'
@@ -676,330 +674,18 @@ def execute(args):
         dependent_task_list=[half_saturation_task, global_abundance_task],
         target_path_list=[farm_pollinator_path])
 
-    task_graph.close()
     task_graph.join()
-    task_graph = None
-    return
 
-    pollinator_abundance_path_map = {}
-    pollinator_abundance_task_map = {}
-    floral_resources_index_path_map = {}
-    floral_resources_index_task_map = {}
-    for species in scenario_variables['species_list']:
-        # calculate foraging_effectiveness[species]
-        # FE(x, s) = sum_j [RA(l(x), j) * fa(s, j)]
-        foraged_flowers_path_band_list = [
-            (scenario_variables['foraged_flowers_index_path'][
-                (species, season)], 1)
-            for season in scenario_variables['season_list']]
-        local_foraging_effectiveness_path = os.path.join(
-            intermediate_output_dir,
-            _LOCAL_FORAGING_EFFECTIVENESS_FILE_PATTERN % (
-                species, file_suffix))
-
-        local_foraging_effectiveness_task = task_graph.add_task(
-            task_name='local_foraging_effectiveness_%s' % species,
-            func=pygeoprocessing.raster_calculator,
-            args=(
-                foraged_flowers_path_band_list,
-                _SumRasters(), local_foraging_effectiveness_path,
-                gdal.GDT_Float32, _INDEX_NODATA),
-            target_path_list=[
-                local_foraging_effectiveness_path],
-            dependent_task_list=[
-                foraged_flowers_index_task_map[(species, season)]
-                for season in scenario_variables['season_list']])
-
-        landcover_pixel_size_tuple = eft_raster_info['pixel_size']
-        try:
-            landcover_mean_pixel_size = utils.mean_pixel_size_and_area(
-                landcover_pixel_size_tuple)[0]
-        except ValueError:
-            landcover_mean_pixel_size = numpy.min(numpy.absolute(
-                landcover_pixel_size_tuple))
-            LOGGER.debug(
-                'Land Cover Raster has unequal x, y pixel sizes: %s. Using'
-                '%s as the mean pixel size.' % (
-                    landcover_pixel_size_tuple, landcover_mean_pixel_size))
-
-        # create a convolution kernel for the species flight range
-        alpha = (
-            scenario_variables['alpha_value'][species] /
-            landcover_mean_pixel_size)
-        kernel_path = os.path.join(
-            intermediate_output_dir, _KERNEL_FILE_PATTERN % (
-                alpha, file_suffix))
-
-        alpha_kernel_raster_task = task_graph.add_task(
-            task_name='decay_kernel_raster_%s' % alpha,
-            func=utils.exponential_decay_kernel_raster,
-            args=(alpha, kernel_path),
-            target_path_list=[kernel_path])
-
-        # create EFD for species
-        efd_raster_path = os.path.join(
-            intermediate_output_dir, _EFD_FILE_PATTERN % (
-                species, file_suffix))
-        create_efd_species_task = task_graph.add_task(
-            func=pygeoprocessing.convolve_2d,
-            args=(
-                (eft_clip_raster_path, 1), (kernel_path, 1),
-                efd_raster_path),
-            kwargs={
-                'ignore_nodata_and_edges': True,
-                'mask_nodata': True,
-                'normalize_kernel': False,
-                },
-            dependent_task_list=[eft_clip_task],
-            task_name=f'create efd for {species}')
-
-        # TODO: rather than calculating nesting habitat, use the efd for
-        #       nesting habitat
-
-        # convolve FE with alpha_s
-        floral_resources_index_path = os.path.join(
-            intermediate_output_dir, _FLORAL_RESOURCES_INDEX_FILE_PATTERN % (
-                species, file_suffix))
-        floral_resources_index_path_map[species] = floral_resources_index_path
-
-        floral_resources_task = task_graph.add_task(
-            task_name='convolve_%s' % species,
-            func=pygeoprocessing.convolve_2d,
-            args=(
-                (local_foraging_effectiveness_path, 1), (kernel_path, 1),
-                floral_resources_index_path),
-            kwargs={
-                'ignore_nodata_and_edges': True,
-                'mask_nodata': True,
-                'normalize_kernel': False,
-                },
-            dependent_task_list=[
-                alpha_kernel_raster_task, local_foraging_effectiveness_task],
-            target_path_list=[floral_resources_index_path])
-
-        floral_resources_index_task_map[species] = floral_resources_task
-        # calculate
-        # pollinator_supply_index[species] PS(x,s) = FR(x,s) * HN(x,s) * sa(s)
-        pollinator_supply_index_path = os.path.join(
-            output_dir, _POLLINATOR_SUPPLY_FILE_PATTERN % (
-                species, file_suffix))
-        ps_index_op = _PollinatorSupplyIndexOp(
-            scenario_variables['species_abundance'][species])
-        pollinator_supply_task = task_graph.add_task(
-            task_name='calculate_pollinator_supply_%s' % species,
-            func=pygeoprocessing.raster_calculator,
-            args=(
-                [(scenario_variables['habitat_nesting_index_path'][species],
-                  1),
-                 (floral_resources_index_path, 1)], ps_index_op,
-                pollinator_supply_index_path, gdal.GDT_Float32,
-                _INDEX_NODATA),
-            dependent_task_list=[
-                floral_resources_task, habitat_nesting_tasks[species]],
-            target_path_list=[pollinator_supply_index_path])
-
-        # calc convolved_PS PS over alpha_s
-        convolve_ps_path = os.path.join(
-            intermediate_output_dir, _CONVOLVE_PS_FILE_PATH % (
-                species, file_suffix))
-
-        convolve_ps_task = task_graph.add_task(
-            task_name='convolve_ps_%s' % species,
-            func=pygeoprocessing.convolve_2d,
-            args=(
-                (pollinator_supply_index_path, 1), (kernel_path, 1),
-                convolve_ps_path),
-            kwargs={
-                'ignore_nodata_and_edges': True,
-                'mask_nodata': True,
-                'normalize_kernel': False,
-                },
-            dependent_task_list=[
-                alpha_kernel_raster_task, pollinator_supply_task],
-            target_path_list=[convolve_ps_path])
-
-        for season in scenario_variables['season_list']:
-            # calculate pollinator activity as
-            # PA(x,s,j)=RA(l(x),j)fa(s,j) convolve(ps, alpha_s)
-            foraged_flowers_index_path = (
-                scenario_variables['foraged_flowers_index_path'][
-                    (species, season)])
-            pollinator_abundance_path = os.path.join(
-                output_dir, _POLLINATOR_ABUNDANCE_FILE_PATTERN % (
-                    species, season, file_suffix))
-            pollinator_abundance_task_map[(species, season)] = (
-                task_graph.add_task(
-                    task_name='calculate_poll_abudance_%s' % species,
-                    func=pygeoprocessing.raster_calculator,
-                    args=(
-                        [(foraged_flowers_index_path, 1),
-                         (floral_resources_index_path_map[species], 1),
-                         (convolve_ps_path, 1)],
-                        _PollinatorSupplyOp(), pollinator_abundance_path,
-                        gdal.GDT_Float32, _INDEX_NODATA),
-                    dependent_task_list=[
-                        foraged_flowers_index_task_map[(species, season)],
-                        floral_resources_index_task_map[species],
-                        convolve_ps_task],
-                    target_path_list=[pollinator_abundance_path]))
-            pollinator_abundance_path_map[(species, season)] = (
-                pollinator_abundance_path)
-
-    # next step is farm vector calculation, if no farms then okay to quit
-    if farm_vector_path is None:
-        task_graph.close()
-        task_graph.join()
-        return
-
-    # blank raster used for rasterizing all the farm parameters/fields later
-    blank_raster_path = os.path.join(
-        intermediate_output_dir, _BLANK_RASTER_FILE_PATTERN % file_suffix)
-    blank_raster_task = task_graph.add_task(
-        task_name='create_blank_raster',
-        func=pygeoprocessing.new_raster_from_base,
-        args=(
-            args['landcover_raster_path'], blank_raster_path,
-            gdal.GDT_Float32, [_INDEX_NODATA]),
-        kwargs={'fill_value_list': [_INDEX_NODATA]},
-        target_path_list=[blank_raster_path])
-
-    farm_pollinator_season_path_list = []
-    farm_pollinator_season_task_list = []
-    total_pollinator_abundance_task = {}
-    for season in scenario_variables['season_list']:
-        # total_pollinator_abundance_index[season] PAT(x,j)=sum_s PA(x,s,j)
-        total_pollinator_abundance_index_path = os.path.join(
-            output_dir, _TOTAL_POLLINATOR_ABUNDANCE_FILE_PATTERN % (
-                season, file_suffix))
-
-        pollinator_abudnance_season_path_band_list = [
-            (pollinator_abundance_path_map[(species, season)], 1)
-            for species in scenario_variables['species_list']]
-
-        total_pollinator_abundance_task[season] = task_graph.add_task(
-            task_name='calculate_poll_abudnce_%s_%s' % (species, season),
-            func=pygeoprocessing.raster_calculator,
-            args=(
-                pollinator_abudnance_season_path_band_list, _SumRasters(),
-                total_pollinator_abundance_index_path, gdal.GDT_Float32,
-                _INDEX_NODATA),
-            dependent_task_list=[
-                pollinator_abundance_task_map[(species, season)]
-                for species in scenario_variables['species_list']],
-            target_path_list=[total_pollinator_abundance_index_path])
-
-        half_saturation_raster_path = os.path.join(
-            intermediate_output_dir, _HALF_SATURATION_FILE_PATTERN % (
-                season, file_suffix))
-        half_saturation_task = task_graph.add_task(
-            task_name='half_saturation_rasterize_%s' % season,
-            func=_rasterize_vector_onto_base,
-            args=(
-                blank_raster_path, farm_vector_path,
-                _HALF_SATURATION_FARM_HEADER, half_saturation_raster_path),
-            kwargs={'filter_string': "%s='%s'" % (_FARM_SEASON_FIELD, season)},
-            dependent_task_list=[blank_raster_task],
-            target_path_list=[half_saturation_raster_path])
-
-        # calc on farm pollinator abundance i.e. FP_season
-        farm_pollinator_season_path = os.path.join(
-            intermediate_output_dir, _FARM_POLLINATOR_SEASON_FILE_PATTERN % (
-                season, file_suffix))
-        farm_pollinator_season_task_list.append(task_graph.add_task(
-            task_name='farm_pollinator_%s' % season,
-            func=pygeoprocessing.raster_calculator,
-            args=(
-                [(half_saturation_raster_path, 1),
-                 (total_pollinator_abundance_index_path, 1)],
-                _OnFarmPollinatorAbundance(), farm_pollinator_season_path,
-                gdal.GDT_Float32, _INDEX_NODATA),
-            dependent_task_list=[
-                half_saturation_task, total_pollinator_abundance_task[season]],
-            target_path_list=[farm_pollinator_season_path]))
-        farm_pollinator_season_path_list.append(farm_pollinator_season_path)
-
-    # sum farm pollinators
-    farm_pollinator_path = os.path.join(
-        output_dir, _FARM_POLLINATOR_FILE_PATTERN % file_suffix)
-    farm_pollinator_task = task_graph.add_task(
-        task_name='sum_farm_pollinators',
-        func=pygeoprocessing.raster_calculator,
-        args=(
-            [(path, 1) for path in farm_pollinator_season_path_list],
-            _SumRasters(), farm_pollinator_path, gdal.GDT_Float32,
-            _INDEX_NODATA),
-        dependent_task_list=farm_pollinator_season_task_list,
-        target_path_list=[farm_pollinator_path])
-
-    # rasterize managed pollinators
-    managed_pollinator_path = os.path.join(
-        intermediate_output_dir,
-        _MANAGED_POLLINATOR_FILE_PATTERN % file_suffix)
-    managed_pollinator_task = task_graph.add_task(
-        task_name='rasterize_managed_pollinators',
-        func=_rasterize_vector_onto_base,
-        args=(
-            blank_raster_path, farm_vector_path, _MANAGED_POLLINATORS_FIELD,
-            managed_pollinator_path),
-        dependent_task_list=[reproject_farm_task, blank_raster_task],
-        target_path_list=[managed_pollinator_path])
-
-    # calculate PYT
-    total_pollinator_yield_path = os.path.join(
-        output_dir, _TOTAL_POLLINATOR_YIELD_FILE_PATTERN % file_suffix)
-    pyt_task = task_graph.add_task(
-        task_name='calculate_total_pollinators',
-        func=pygeoprocessing.raster_calculator,
-        args=(
-            [(managed_pollinator_path, 1), (farm_pollinator_path, 1)],
-            _PYTOp(), total_pollinator_yield_path, gdal.GDT_Float32,
-            _INDEX_NODATA),
-        dependent_task_list=[farm_pollinator_task, managed_pollinator_task],
-        target_path_list=[total_pollinator_yield_path])
-
-    # calculate PYW
-    wild_pollinator_yield_path = os.path.join(
-        output_dir, _WILD_POLLINATOR_YIELD_FILE_PATTERN % file_suffix)
-    wild_pollinator_task = task_graph.add_task(
-        task_name='calcualte_wild_pollinators',
-        func=pygeoprocessing.raster_calculator,
-        args=(
-            [(managed_pollinator_path, 1), (total_pollinator_yield_path, 1)],
-            _PYWOp(), wild_pollinator_yield_path, gdal.GDT_Float32,
-            _INDEX_NODATA),
-        dependent_task_list=[pyt_task, managed_pollinator_task],
-        target_path_list=[wild_pollinator_yield_path])
-
-    # aggregate yields across farms
     target_farm_result_path = os.path.join(
         output_dir, _FARM_VECTOR_RESULT_FILE_PATTERN % file_suffix)
-    if os.path.exists(target_farm_result_path):
-        os.remove(target_farm_result_path)
-    reproject_farm_task.join()
+    LOGGER.debug(f'create {target_farm_result_path} from {farm_vector_path}')
     _create_farm_result_vector(
         farm_vector_path, target_farm_result_path)
 
-    # aggregate wild pollinator yield over farm
-    wild_pollinator_task.join()
-    wild_pollinator_yield_aggregate = pygeoprocessing.zonal_statistics(
-        (wild_pollinator_yield_path, 1), target_farm_result_path)
-
     # aggregate yield over a farm
-    pyt_task.join()
     total_farm_results = pygeoprocessing.zonal_statistics(
-        (total_pollinator_yield_path, 1), target_farm_result_path)
-
-    # aggregate the pollinator abundance results over the farms
-    pollinator_abundance_results = {}
-    for season in scenario_variables['season_list']:
-        total_pollinator_abundance_index_path = os.path.join(
-            output_dir, _TOTAL_POLLINATOR_ABUNDANCE_FILE_PATTERN % (
-                season, file_suffix))
-        total_pollinator_abundance_task[season].join()
-        pollinator_abundance_results[season] = (
-            pygeoprocessing.zonal_statistics(
-                (total_pollinator_abundance_index_path, 1),
-                target_farm_result_path))
+        (global_pollinator_abundance_raster_path, 1),
+        target_farm_result_path)
 
     target_farm_vector = gdal.OpenEx(target_farm_result_path, 1)
     target_farm_layer = target_farm_vector.GetLayer()
@@ -1017,24 +703,11 @@ def execute(args):
                     1 - total_farm_results[fid]['sum'] /
                     float(total_farm_results[fid]['count'])))
 
-            # this is PYW ('pdep_y_w')
-            farm_feature.SetField(
-                _POLLINATOR_PROPORTION_FARM_YIELD_FIELD_ID,
-                (wild_pollinator_yield_aggregate[fid]['sum'] /
-                 float(wild_pollinator_yield_aggregate[fid]['count'])))
-
-            # this is YW ('y_wild')
-            farm_feature.SetField(
-                _WILD_POLLINATOR_FARM_YIELD_FIELD_ID,
-                nu * (wild_pollinator_yield_aggregate[fid]['sum'] /
-                      float(wild_pollinator_yield_aggregate[fid]['count'])))
-
             # this is PAT ('p_abund')
-            farm_season = farm_feature.GetField(_FARM_SEASON_FIELD)
             farm_feature.SetField(
                 _POLLINATOR_ABUDNANCE_FARM_FIELD_ID,
-                pollinator_abundance_results[farm_season][fid]['sum'] /
-                float(pollinator_abundance_results[farm_season][fid]['count']))
+                total_farm_results[fid]['sum'] /
+                float(total_farm_results[fid]['count']))
 
         target_farm_layer.SetFeature(farm_feature)
     target_farm_layer.SyncToDisk()
@@ -1043,6 +716,8 @@ def execute(args):
 
     task_graph.close()
     task_graph.join()
+    task_graph = None
+    return
 
 
 def _rasterize_vector_onto_base(
@@ -1096,11 +771,11 @@ def _create_farm_result_vector(
         None.
 
     """
-    base_vector = gdal.OpenEx(base_vector_path, gdal.OF_VECTOR)
-
-    driver = gdal.GetDriverByName('ESRI Shapefile')
-    target_vector = driver.CreateCopy(
-        target_vector_path, base_vector)
+    if os.path.exists(target_vector_path):
+        os.remove(target_vector_path)
+    base_vector = ogr.Open(base_vector_path)
+    driver = ogr.GetDriverByName('GPKG')
+    target_vector = driver.CopyDataSource(base_vector, target_vector_path)
     target_layer = target_vector.GetLayer()
 
     farm_pollinator_abundance_defn = ogr.FieldDefn(
@@ -1115,20 +790,14 @@ def _create_farm_result_vector(
     total_farm_yield_field_defn.SetPrecision(11)
     target_layer.CreateField(total_farm_yield_field_defn)
 
-    pol_proportion_farm_yield_field_defn = ogr.FieldDefn(
-        _POLLINATOR_PROPORTION_FARM_YIELD_FIELD_ID, ogr.OFTReal)
-    pol_proportion_farm_yield_field_defn.SetWidth(25)
-    pol_proportion_farm_yield_field_defn.SetPrecision(11)
-    target_layer.CreateField(pol_proportion_farm_yield_field_defn)
-
     wild_pol_farm_yield_field_defn = ogr.FieldDefn(
         _WILD_POLLINATOR_FARM_YIELD_FIELD_ID, ogr.OFTReal)
     wild_pol_farm_yield_field_defn.SetWidth(25)
     wild_pol_farm_yield_field_defn.SetPrecision(11)
     target_layer.CreateField(wild_pol_farm_yield_field_defn)
 
-    target_layer = None
     target_vector.FlushCache()
+    target_layer = None
     target_vector = None
 
 
