@@ -26,7 +26,6 @@ _FLORAL_RESOURCES_EFD_SUFFICIENT_RE = 'floral_resources_efd_sufficient'
 _RELATIVE_SPECIES_ABUNDANCE_FIELD = 'relative_abundance'
 _FLORAL_ALPHA_HEADER = 'floral_alpha'
 _NESTING_ALPHA_HEADER = 'nesting_alpha'
-_FLIGHT_ALPHA_HEADER = 'flight_alpha'
 _EXPECTED_GUILD_HEADERS = [
     'species',
     _FLORAL_ALPHA_HEADER,
@@ -73,7 +72,7 @@ _FORAGED_FLOWERS_INDEX_FILE_PATTERN = (
 # used for convolving PS over alpha s replace (species, file_suffix)
 _CONVOLVE_PS_FILE_PATH = 'convolve_ps_%s%s.tif'
 # half saturation raster replace (file_suffix)
-_HALF_SATURATION_FILE_PATTERN = 'half_saturation_%s%s.tif'
+_HALF_SATURATION_FILE_PATTERN = 'half_saturation%s.tif'
 # blank raster as a basis to rasterize on replace (file_suffix)
 _BLANK_RASTER_FILE_PATTERN = 'blank_raster%s.tif'
 # raster to hold farm pollinator replace (species, file_suffix)
@@ -93,22 +92,18 @@ _WILD_POLLINATOR_FARM_YIELD_FIELD_ID = 'y_wild'
 # output field for proportion of wild pollinators over the pollinator
 # dependent part of the yield
 _POLLINATOR_PROPORTION_FARM_YIELD_FIELD_ID = 'pdep_y_w'
-# output field for pollinator abundance on farm
-_POLLINATOR_ABUDNANCE_FARM_FIELD_ID = 'p_abund'
-# expected pattern for seasonal floral resources in input shapefile
-_FARM_FLORAL_RESOURCES_HEADER_PATTERN = 'fr'
-# expected pattern for nesting substrate in input shapfile
-_FARM_NESTING_SUBSTRATE_HEADER_PATTERN = 'n'
 _HALF_SATURATION_FARM_HEADER = 'half_sat'
 _CROP_POLLINATOR_DEPENDENCE_FIELD = 'p_dep'
 _MANAGED_POLLINATORS_FIELD = 'p_managed'
 _EXPECTED_FARM_HEADERS = [
     'crop_type', _HALF_SATURATION_FARM_HEADER,
-    _MANAGED_POLLINATORS_FIELD, _FARM_FLORAL_RESOURCES_HEADER_PATTERN,
-    _FARM_NESTING_SUBSTRATE_HEADER_PATTERN, _CROP_POLLINATOR_DEPENDENCE_FIELD]
+    _MANAGED_POLLINATORS_FIELD,
+    _CROP_POLLINATOR_DEPENDENCE_FIELD]
 
 # used for clipping EFT to landcover replace (file_suffix)
 _EFT_CLIP_FILE_PATTERN = 'eft_clip%s.tif'
+# used for clipping EFT to landcover replace (file_suffix)
+_EFT_FARM_FILE_PATTERN = 'eft_clip_farm_eft%s.tif'
 # used for creating EFD from EFT replace (species, file_suffix)
 _EFD_FILE_PATTERN = 'efd_%s%s.tif'
 
@@ -124,6 +119,21 @@ def _mkdir(dir_path):
     except OSError:
         pass
     return dir_path
+
+
+def _weighted_average_op(nodata, *array_weight_list):
+    """Calcualte weighted average of array w/ weights."""
+    aw_iter = iter(array_weight_list)
+    result = numpy.zeros(array_weight_list[0].shape)
+    valid_mask = numpy.ones(array_weight_list[0].shape, dtype=numpy.bool)
+    weight_sum = 0.0
+    for array, weight in zip(aw_iter, aw_iter):
+        valid_mask &= numpy.isfinite(array) & (array >= 0)
+        result[valid_mask] += array[valid_mask] * weight
+        weight_sum += weight
+    result[~valid_mask] = nodata
+    result[valid_mask] /= weight_sum
+    return result
 
 
 class BoundedSigmoid(object):
@@ -318,22 +328,14 @@ def execute(args):
             Will overwrite any files that exist if the path already exists.
         args['results_suffix'] (string): string appended to each output
             file path.
+        args['eft_raster_path'] (string): path to ecosystem functional type
+            raster containing unique IDs for each unique EFT. Used in
+            conjuction with the farm polygon's 'fr_eft' field as a unique
+            field ID.
         eft_clip_raster_path (string): Ecosystem Functional Types raster
             whose pixels represent unique ecosystem
             functional types at a given pixel. The value is the "id" of that
             ecosystem functional type.
-        args['minimum_diversity_count'] (numeric): Minimum threshold of
-            diversity types needed to reach 0.1 of the EFD saturation. This
-            value should be > 0. Practically, this is used in the model to map
-            EFD counts to a number between 0 and 1 to represent biodiversity
-            health.
-        args['sufficient_diversity_count'] (numeric): Sufficient number of
-            diversity types needed to reach 0.9 of the EFD saturation. This
-            need not be the max value in the Ecosystem Functional Types Raster.
-            Instead it reflects the maximum EFT count that would result in a
-            fully diverse area. Practically, this is used in the model to map
-            the EFD counts to a number between 0 and 1 to represent
-            biodiversity health.
         args['guild_table_path'] (string): file path to a table indicating
             the bee species to analyze in this model run.  Table headers
             must include:
@@ -366,9 +368,8 @@ def execute(args):
                 representing the proportion of yield dependent on pollinators.
             * p_managed (float): proportion of pollinators that come from
                 non-native/managed hives.
-            * fr (float): Any areas that overlap the
-                landcover map will replace floral resources with
-                this value.  Ranges from 0..1.
+            * fr_eft (int): Farm ecosystem functional type ID. This is the same
+                ID set as those used in
             * n_[substrate] (float): One or more fields that match this
                 pattern such that `substrate` also matches the nesting
                 substrate headers in the biophysical and guild table.  Any
@@ -439,6 +440,24 @@ def execute(args):
                 eft_raster_info['projection_wkt'], farm_vector_path),
             target_path_list=[farm_vector_path])
 
+        # rasterize farm polygon fr_eft to eft raster path
+        eft_farm_raster_path = os.path.join(
+            intermediate_output_dir, _EFT_FARM_FILE_PATTERN % file_suffix)
+        rasterize_farm_task = task_graph.add_task(
+            func=_rasterize_vector_onto_base,
+            args=(
+                eft_clip_raster_path, farm_vector_path,
+                scenario_variables['farm_floral_eft_field'],
+                eft_farm_raster_path),
+            target_path_list=[eft_farm_raster_path],
+            dependent_task_list=[reproject_farm_task, eft_clip_task],
+            task_name=f'rasterize EFTs from farm on top of global EFT')
+        # sneak the rasterized farm eft as the primary eft raster by
+        # overwriting these variables, if no farm vector then they are
+        # the original clipped values
+        eft_clip_task = rasterize_farm_task
+        eft_clip_raster_path = eft_farm_raster_path
+
     # get unique eft codes
     eft_code_list = task_graph.add_task(
         func=_get_unique_values,
@@ -476,6 +495,8 @@ def execute(args):
         eft_to_raster_task_map[eft_code] = (
             eft_mask_raster_path, eft_mask_task)
 
+    abundance_path_weight_list = []
+    abundance_task_list = []
     for species in scenario_variables['species_list']:
         wddi_alpha_raster_task_map = {}
         for alpha_type in ['floral', 'nesting']:
@@ -491,6 +512,9 @@ def execute(args):
                 func=utils.exponential_decay_kernel_raster,
                 args=(alpha, kernel_path),
                 target_path_list=[kernel_path])
+            if alpha_type == 'floral':
+                # this is for flying to farms later
+                flight_kernel_path = kernel_path
 
             weighted_eft_raster_list = []
             weighted_eft_task_list = []
@@ -532,20 +556,12 @@ def execute(args):
             wddi_alpha_raster_task_map[alpha_type] = (
                 wddi_raster_path, create_wddi_task)
 
-        # TODO: calculate per species nesting suitability rasters (WDDI mapped to range)
-        # TODO: calculate per species per season floral resources (WDDI mapped to range)
-
         resources_to_raster_task_map = {}
-        for (biophysical_type, biophysical_file_pattern,
-             farm_file_pattern, farm_field) in [
+        for (biophysical_type, biophysical_file_pattern) in [
                 ('floral_resources',
-                 _RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN,
-                 _FARM_RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN,
-                 args['farm_floral_resources_field']),
+                 _RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN),
                 ('nesting_suitability',
-                 _NESTING_SUBSTRATE_INDEX_FILE_PATTERN,
-                 _FARM_NESTING_SUBSTRATE_INDEX_FILE_PATTERN,
-                 args['farm_nesting_suitability_field'])]:
+                 _NESTING_SUBSTRATE_INDEX_FILE_PATTERN)]:
             alpha_type = biophysical_type.split('_')[0]
             biophysical_raster_path = os.path.join(
                 intermediate_output_dir, biophysical_file_pattern % (
@@ -568,86 +584,34 @@ def execute(args):
             resources_to_raster_task_map[biophysical_type] = (
                 biophysical_raster_path, biophysical_task)
 
-            # rasterize the farms onto floral resources
-            if farm_vector_path is not None:
-                farm_biophysical_raster_path = os.path.join(
-                    intermediate_output_dir, farm_file_pattern % (
-                        species, file_suffix))
-                rasterize_farm_task = task_graph.add_task(
-                    func=_rasterize_vector_onto_base,
-                    args=(
-                        biophysical_raster_path, farm_vector_path,
-                        farm_field, farm_biophysical_raster_path),
-                    target_path_list=[farm_biophysical_raster_path],
-                    dependent_task_list=[biophysical_task],
-                    task_name=f'create farm wddi for {species} {biophysical_type}')
-                resources_to_raster_task_map[biophysical_type] = (
-                    farm_biophysical_raster_path, rasterize_farm_task)
-            else:
-                resources_to_raster_task_map[biophysical_type] = (
-                    biophysical_raster_path, biophysical_task)
-
-        # "fly" the pollinators to floral resources
-        flight_kernel_path = os.path.join(
-            efd_mask_dir, _KERNEL_FILE_PATTERN % (
-                species, 'alpha_type', alpha, file_suffix))
-        flight_alpha = (
-            scenario_variables[_FLIGHT_ALPHA_HEADER][species] /
-            mean_pixel_size)
-        alpha_kernel_raster_task = task_graph.add_task(
-            task_name='decay_kernel_raster_%s' % 'flight_alpha',
-            func=utils.exponential_decay_kernel_raster,
-            args=(flight_alpha, flight_kernel_path),
-            target_path_list=[flight_kernel_path])
-        local_foraging_raster_path = os.path.join(
-            intermediate_output_dir,
-            _LOCAL_FORAGING_EFFECTIVENESS_FILE_PATTERN % (
-                species, file_suffix))
-        local_foraging_task = task_graph.add_task(
-            func=pygeoprocessing.convolve_2d,
-            args=(
-                (resources_to_raster_task_map['floral_resources'][0], 1),
-                (flight_kernel_path, 1),
-                local_foraging_raster_path),
-            kwargs={
-                'ignore_nodata_and_edges': True,
-                'mask_nodata': True,
-                'normalize_kernel': False,
-                },
-            dependent_task_list=[
-                resources_to_raster_task_map['floral_resources'][1],
-                alpha_kernel_raster_task],
-            target_path_list=[local_foraging_raster_path],
-            task_name=f'create local foraging effectiveness for {species}')
-
-        # TODO: calculate pollinator supply as FR*HN
+        # calculate local pollinator supply as FR*HN
         pollinator_supply_index_path = os.path.join(
-            output_dir, _POLLINATOR_SUPPLY_FILE_PATTERN % (
+            intermediate_output_dir, _POLLINATOR_SUPPLY_FILE_PATTERN % (
                 species, file_suffix))
         pollinator_supply_task = task_graph.add_task(
-            task_name='calculate_pollinator_supply_%s' % species,
+            task_name=f'calculate pollinator supply {species}',
             func=pygeoprocessing.raster_calculator,
             args=(
-                [(resources_to_raster_task_map['nesting_suitability'][0], 1),
-                 (local_foraging_raster_path, 1),
+                [(resources_to_raster_task_map['floral_resources'][0], 1),
+                 (resources_to_raster_task_map['nesting_suitability'][0], 1),
                  (scenario_variables['species_abundance'][species], 'raw')],
-                ps_supply_op, pollinator_supply_index_path, gdal.GDT_Float32,
-                _INDEX_NODATA),
+                ps_supply_op, pollinator_supply_index_path,
+                gdal.GDT_Float32, _INDEX_NODATA),
             dependent_task_list=[
-                resources_to_raster_task_map['nesting_suitability'][1],
-                local_foraging_task],
+                resources_to_raster_task_map['floral_resources'][1],
+                resources_to_raster_task_map['nesting_suitability'][1]],
             target_path_list=[pollinator_supply_index_path])
 
-        # TODO: fly the pollinator supply to cover farms
-        farm_pollinators_raster_path = os.path.join(
-            intermediate_output_dir, _FARM_POLLINATOR_FILE_PATTERN % (
+        # fly the pollinator supply to cover farms
+        pollinator_abundance_raster_path = os.path.join(
+            intermediate_output_dir, _POLLINATOR_ABUNDANCE_FILE_PATTERN % (
                 species, file_suffix))
-        local_foraging_task = task_graph.add_task(
+        abundance_task = task_graph.add_task(
             func=pygeoprocessing.convolve_2d,
             args=(
                 (pollinator_supply_index_path, 1),
                 (flight_kernel_path, 1),
-                farm_pollinators_raster_path),
+                pollinator_abundance_raster_path),
             kwargs={
                 'ignore_nodata_and_edges': True,
                 'mask_nodata': True,
@@ -655,8 +619,49 @@ def execute(args):
                 },
             dependent_task_list=[
                 pollinator_supply_task, alpha_kernel_raster_task],
-            target_path_list=[farm_pollinators_raster_path],
-            task_name=f'create local pollinator coverage for {species}')
+            target_path_list=[pollinator_abundance_raster_path],
+            task_name=f'create pollinator supply for {species}')
+
+        abundance_task_list.append(abundance_task)
+        abundance_path_weight_list.append(
+            (pollinator_abundance_raster_path, 1))
+        abundance_path_weight_list.append(
+            (scenario_variables['species_abundance'][species], 'raw'))
+
+    # combine the pollinator abundance to total abundance based on relative values
+    global_pollinator_abundance_raster_path = os.path.join(
+        args['workspace_dir'],
+        _TOTAL_POLLINATOR_ABUNDANCE_FILE_PATTERN % file_suffix)
+    global_abundance_task = task_graph.add_task(
+        func=pygeoprocessing.raster_calculator,
+        args=(
+            [(_INDEX_NODATA, 'raw')] + abundance_path_weight_list,
+            _weighted_average_op, global_pollinator_abundance_raster_path,
+            gdal.GDT_Float32, _INDEX_NODATA),
+        target_path_list=[global_pollinator_abundance_raster_path],
+        dependent_task_list=abundance_task_list)
+
+    # calculate farm yield
+    blank_raster_path = os.path.join(
+        intermediate_output_dir, _BLANK_RASTER_FILE_PATTERN % file_suffix)
+    blank_raster_task = task_graph.add_task(
+        task_name='create_blank_raster',
+        func=pygeoprocessing.new_raster_from_base,
+        args=(
+            eft_clip_raster_path, blank_raster_path, gdal.GDT_Float32,
+            [_INDEX_NODATA]),
+        target_path_list=[blank_raster_path])
+
+    half_saturation_raster_path = os.path.join(
+        intermediate_output_dir, _HALF_SATURATION_FILE_PATTERN % file_suffix)
+    half_saturation_task = task_graph.add_task(
+        task_name='rasterize half saturation',
+        func=_rasterize_vector_onto_base,
+        args=(
+            blank_raster_path, farm_vector_path,
+            _HALF_SATURATION_FARM_HEADER, half_saturation_raster_path),
+        dependent_task_list=[blank_raster_task],
+        target_path_list=[half_saturation_raster_path])
 
     task_graph.close()
     task_graph.join()
@@ -1185,8 +1190,6 @@ def _parse_scenario_variables(args):
             guild_table[species][_FLORAL_ALPHA_HEADER])
         result[_NESTING_ALPHA_HEADER][species] = float(
             guild_table[species][_NESTING_ALPHA_HEADER])
-        result[_FLIGHT_ALPHA_HEADER][species] = float(
-            guild_table[species][_FLIGHT_ALPHA_HEADER])
         result['nesting_suitability_efd_min'][species] = float(
             guild_table[species]['nesting_suitability_efd_min'])
         result['nesting_suitability_efd_sufficient'][species] = float(
