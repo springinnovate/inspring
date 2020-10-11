@@ -57,10 +57,10 @@ _LOCAL_FORAGING_EFFECTIVENESS_FILE_PATTERN = (
 # pollinator supply raster replace (species, file_suffix)
 _POLLINATOR_SUPPLY_FILE_PATTERN = 'pollinator_supply_%s%s.tif'
 # name of reprojected farm vector replace (file_suffix)
-_PROJECTED_FARM_VECTOR_FILE_PATTERN = 'reprojected_farm_vector%s.shp'
+_PROJECTED_FARM_VECTOR_FILE_PATTERN = 'reprojected_farm_vector%s.gpkg'
 # used to store the 2D decay kernel for a given distance replace
 # (species, alpha_type, alpha, file suffix)
-_KERNEL_FILE_PATTERN = 'kernel_%s%s%f%s.tif'
+_KERNEL_FILE_PATTERN = 'kernel_%s_%s_%f%s.tif'
 # PA(x,s,j) replace (species, file_suffix)
 _POLLINATOR_ABUNDANCE_FILE_PATTERN = 'pollinator_abundance_%s_%s.tif'
 # PAT(x,j) total pollinator abundance replace (file_suffix)
@@ -183,8 +183,8 @@ class BoundedSigmoid(object):
         return result
 
 
-def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
-    """Resample base to a square utm raster."""
+def _calculate_utm_wkt_region(base_raster_path):
+    """Calculate which UTM zone the raster lies, return the WKT for it."""
     raster_info = pygeoprocessing.get_raster_info(base_raster_path)
     width, height = raster_info['raster_size']
     base_srs = osr.SpatialReference()
@@ -204,11 +204,19 @@ def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
         target_srs.ImportFromEPSG(epsg_code)
     else:
         target_srs = base_srs
+    return target_srs.ExportToWkt()
+
+
+def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
+    """Resample base to a square utm raster."""
+    target_srs_wkt = _calculate_utm_wkt_region(base_raster_path)
+    raster_info = pygeoprocessing.get_raster_info(base_raster_path)
+    width, height = raster_info['raster_size']
 
     transformed_bb = pygeoprocessing.transform_bounding_box(
         raster_info['bounding_box'],
         raster_info['projection_wkt'],
-        target_srs.ExportToWkt())
+        target_srs_wkt)
 
     pixel_x = (transformed_bb[2]-transformed_bb[0])/width
     pixel_y = (transformed_bb[3]-transformed_bb[1])/height
@@ -217,7 +225,7 @@ def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
 
     pygeoprocessing.warp_raster(
         base_raster_path, target_pixel_size, target_raster_path, 'mode',
-        target_projection_wkt=target_srs.ExportToWkt(),
+        target_projection_wkt=target_srs_wkt,
         working_dir=os.path.dirname(target_raster_path))
 
 
@@ -380,6 +388,9 @@ def execute(args):
     Returns:
         None
     """
+    rand_gen = numpy.random.RandomState(
+        numpy.random.MT19937(numpy.random.SeedSequence(123456789)))
+
     # create initial working directories and determine file suffixes
     intermediate_output_dir = os.path.join(
         args['workspace_dir'], 'intermediate_outputs')
@@ -435,7 +446,9 @@ def execute(args):
             func=pygeoprocessing.reproject_vector,
             args=(
                 args['farm_vector_path'],
-                eft_raster_info['projection_wkt'], farm_vector_path),
+                _calculate_utm_wkt_region(args['eft_raster_path']),
+                farm_vector_path),
+            kwargs={'driver_name': 'GPKG'},
             target_path_list=[farm_vector_path])
 
         # rasterize farm polygon fr_eft to eft raster path
@@ -445,7 +458,7 @@ def execute(args):
             func=_rasterize_vector_onto_base,
             args=(
                 eft_clip_raster_path, farm_vector_path,
-                scenario_variables['farm_floral_eft_field'],
+                args['farm_floral_eft_field'],
                 eft_farm_raster_path),
             target_path_list=[eft_farm_raster_path],
             dependent_task_list=[reproject_farm_task, eft_clip_task],
@@ -502,13 +515,16 @@ def execute(args):
             alpha = (
                 scenario_variables[alpha_field][species] /
                 mean_pixel_size)
+            # this prevents us from having duplicate kernels
+            alpha += rand_gen.random()*alpha/1e8
             kernel_path = os.path.join(
                 efd_mask_dir, _KERNEL_FILE_PATTERN % (
                     species, alpha_type, alpha, file_suffix))
             alpha_kernel_raster_task = task_graph.add_task(
-                task_name='decay_kernel_raster_%s' % alpha,
+                task_name=f'decay_kernel_raster_{species}_{alpha:.8f}',
                 func=utils.exponential_decay_kernel_raster,
                 args=(alpha, kernel_path),
+                copy_duplicate_artifact=True,
                 target_path_list=[kernel_path])
             if alpha_type == 'floral':
                 # this is for flying to farms later
@@ -685,7 +701,9 @@ def execute(args):
     # aggregate yield over a farm
     total_farm_results = pygeoprocessing.zonal_statistics(
         (global_pollinator_abundance_raster_path, 1),
-        target_farm_result_path)
+        target_farm_result_path, polygons_might_overlap=False)
+
+    LOGGER.debug(f'total_farm_results: {total_farm_results}')
 
     target_farm_vector = gdal.OpenEx(target_farm_result_path, 1)
     target_farm_layer = target_farm_vector.GetLayer()
@@ -747,7 +765,7 @@ def _rasterize_vector_onto_base(
         layer.SetAttributeFilter(str(filter_string))
     gdal.RasterizeLayer(
         target_raster, [1], layer,
-        options=['ATTRIBUTE=%s' % attribute_id])
+        options=[f'ATTRIBUTE={attribute_id}', 'ALL_TOUCHED=TRUE'])
     target_raster.FlushCache()
     target_raster = None
     layer = None
@@ -765,7 +783,6 @@ def _create_farm_result_vector(
             unique integer IDs for each feature.  This path must not already
             exist.  It also has new entries for all the result fields:
                 _TOTAL_FARM_YIELD_FIELD_ID
-                _WILD_POLLINATOR_FARM_YIELD_FIELD_ID
 
     Returns:
         None.
@@ -789,12 +806,6 @@ def _create_farm_result_vector(
     total_farm_yield_field_defn.SetWidth(25)
     total_farm_yield_field_defn.SetPrecision(11)
     target_layer.CreateField(total_farm_yield_field_defn)
-
-    wild_pol_farm_yield_field_defn = ogr.FieldDefn(
-        _WILD_POLLINATOR_FARM_YIELD_FIELD_ID, ogr.OFTReal)
-    wild_pol_farm_yield_field_defn.SetWidth(25)
-    wild_pol_farm_yield_field_defn.SetPrecision(11)
-    target_layer.CreateField(wild_pol_farm_yield_field_defn)
 
     target_vector.FlushCache()
     target_layer = None
