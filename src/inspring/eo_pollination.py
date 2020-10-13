@@ -509,8 +509,12 @@ def execute(args):
     abundance_path_weight_list = []
     abundance_task_list = []
     for species in scenario_variables['species_list']:
-        wddi_alpha_raster_task_map = {}
-        for alpha_type in ['floral', 'nesting']:
+        resources_to_raster_task_map = {}
+        for alpha_type, biophysical_type, biophysical_file_pattern in [
+                ('floral', 'floral_resources',
+                 _RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN),
+                ('nesting', 'nesting_suitability',
+                 _NESTING_SUBSTRATE_INDEX_FILE_PATTERN)]:
             alpha_field = f'{alpha_type}_alpha'
             alpha = (
                 scenario_variables[alpha_field][species] /
@@ -567,20 +571,10 @@ def execute(args):
                 dependent_task_list=weighted_eft_task_list,
                 target_path_list=[wddi_raster_path],
                 task_name=f'create {alpha_type} wddi for {species}')
-            wddi_alpha_raster_task_map[alpha_type] = (
-                wddi_raster_path, create_wddi_task)
 
-        resources_to_raster_task_map = {}
-        for (biophysical_type, biophysical_file_pattern) in [
-                ('floral_resources',
-                 _RELATIVE_FLORAL_ABUNDANCE_INDEX_FILE_PATTERN),
-                ('nesting_suitability',
-                 _NESTING_SUBSTRATE_INDEX_FILE_PATTERN)]:
-            alpha_type = biophysical_type.split('_')[0]
             biophysical_raster_path = os.path.join(
                 intermediate_output_dir, biophysical_file_pattern % (
                     species, file_suffix))
-
             efd_min = scenario_variables[
                 f'{biophysical_type}_efd_min'][species]
             efd_sufficient = scenario_variables[
