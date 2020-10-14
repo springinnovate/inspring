@@ -601,8 +601,7 @@ def execute(args):
             func=pygeoprocessing.raster_calculator,
             args=(
                 [(resources_to_raster_task_map['floral_resources'][0], 1),
-                 (resources_to_raster_task_map['nesting_suitability'][0], 1),
-                 (scenario_variables['species_abundance'][species], 'raw')],
+                 (resources_to_raster_task_map['nesting_suitability'][0], 1)],
                 ps_supply_op, pollinator_supply_index_path,
                 gdal.GDT_Float32, _INDEX_NODATA),
             dependent_task_list=[
@@ -899,211 +898,16 @@ def _parse_scenario_variables(args):
     return result
 
 
-class _CalculateHabitatNestingIndex(object):
-    """Closure for HN(x, s) = max_n(N(x, n) ns(s,n)) calculation."""
-
-    def __init__(
-            self, substrate_path_map, species_substrate_index_map,
-            target_habitat_nesting_index_path):
-        """Define parameters necessary for HN(x,s) calculation.
-
-        Parameters:
-            substrate_path_map (dict): map substrate name to substrate index
-                raster path. (N(x, n))
-            species_substrate_index_map (dict): map substrate name to
-                scalar value of species substrate suitability. (ns(s,n))
-            target_habitat_nesting_index_path (string): path to target
-                raster
-        """
-        # try to get the source code of __call__ so task graph will recompute
-        # if the function has changed
-        try:
-            self.__name__ = hashlib.sha1(inspect.getsource(
-                    _CalculateHabitatNestingIndex.__call__
-                ).encode('utf-8')).hexdigest()
-        except IOError:
-            # default to the classname if it doesn't work
-            self.__name__ = _CalculateHabitatNestingIndex.__name__
-        self.__name__ += str([
-            substrate_path_map, species_substrate_index_map,
-            target_habitat_nesting_index_path])
-        self.substrate_path_list = [
-            substrate_path_map[substrate_id]
-            for substrate_id in sorted(substrate_path_map)]
-
-        self.species_substrate_suitability_index_array = numpy.array([
-            species_substrate_index_map[substrate_id]
-            for substrate_id in sorted(substrate_path_map)]).reshape(
-                (len(species_substrate_index_map), 1))
-
-        self.target_habitat_nesting_index_path = (
-            target_habitat_nesting_index_path)
-
-    def __call__(self):
-        """Calculate HN(x, s) = max_n(N(x, n) ns(s,n))."""
-        def max_op(*substrate_index_arrays):
-            """Return the max of index_array[n] * ns[n]."""
-            result = numpy.max(
-                numpy.stack([x.flatten() for x in substrate_index_arrays]) *
-                self.species_substrate_suitability_index_array, axis=0)
-            result = result.reshape(substrate_index_arrays[0].shape)
-            result[substrate_index_arrays[0] == _INDEX_NODATA] = _INDEX_NODATA
-            return result
-
-        pygeoprocessing.raster_calculator(
-            [(x, 1) for x in self.substrate_path_list], max_op,
-            self.target_habitat_nesting_index_path,
-            gdal.GDT_Float32, _INDEX_NODATA)
-
-
-class _SumRasters(object):
-    """Sum all rasters where nodata is 0 unless the entire stack is nodata."""
-
-    def __init__(self):
-        # try to get the source code of __call__ so task graph will recompute
-        # if the function has changed
-        try:
-            self.__name__ = hashlib.sha1(
-                inspect.getsource(
-                    _SumRasters.__call__
-                ).encode('utf-8')).hexdigest()
-        except IOError:
-            # default to the classname if it doesn't work
-            self.__name__ = (
-                _SumRasters.__name__)
-
-    def __call__(self, *array_list):
-        """Calculate sum of array_list and account for nodata."""
-        valid_mask = numpy.zeros(array_list[0].shape, dtype=numpy.bool)
-        result = numpy.empty_like(array_list[0])
-        result[:] = 0
-        for array in array_list:
-            local_valid_mask = array != _INDEX_NODATA
-            result[local_valid_mask] += array[local_valid_mask]
-            valid_mask |= local_valid_mask
-        result[~valid_mask] = _INDEX_NODATA
-        return result
-
-
-class _PollinatorSupplyOp(object):
-    """Calc PA=RA*fa/FR * convolve(PS)."""
-
-    def __init__(self):
-        # try to get the source code of __call__ so task graph will recompute
-        # if the function has changed
-        try:
-            self.__name__ = hashlib.sha1(
-                inspect.getsource(
-                    _PollinatorSupplyOp.__call__
-                ).encode('utf-8')).hexdigest()
-        except IOError:
-            # default to the classname if it doesn't work
-            self.__name__ = (
-                _PollinatorSupplyOp.__name__)
-
-    def __call__(
-            self, foraged_flowers_array, floral_resources_array,
-            convolve_ps_array):
-        """Calculating (RA*fa)/FR * convolve(PS)."""
-        valid_mask = foraged_flowers_array != _INDEX_NODATA
-        result = numpy.empty_like(foraged_flowers_array)
-        result[:] = _INDEX_NODATA
-        zero_mask = floral_resources_array == 0
-        result[zero_mask & valid_mask] = 0.0
-        result_mask = valid_mask & ~zero_mask
-        result[result_mask] = (
-            foraged_flowers_array[result_mask] /
-            floral_resources_array[result_mask] *
-            convolve_ps_array[result_mask])
-        return result
-
-
 def ps_supply_op(
-        floral_resources_array, habitat_nesting_suitability_array,
-        species_abundance):
-    """Calculate f_r * h_n * self.species_abundance."""
+        floral_resources_array, habitat_nesting_suitability_array):
+    """Calculate f_r * h_n."""
     result = numpy.empty_like(floral_resources_array)
     result[:] = _INDEX_NODATA
     valid_mask = ~numpy.isclose(floral_resources_array, _INDEX_NODATA)
     result[valid_mask] = (
-        species_abundance * floral_resources_array[valid_mask] *
+        floral_resources_array[valid_mask] *
         habitat_nesting_suitability_array[valid_mask])
     return result
-
-
-class _PollinatorSupplyIndexOp(object):
-    """Calculate PS(x,s) = FR(x,s) * HN(x,s) * sa(s)."""
-
-    def __init__(self, species_abundance):
-        """Create a closure for species abundance to multiply later.
-
-        Parameters:
-            species_abundance (float): value to use in `__call__` when
-                calculating pollinator abundance.
-
-        Returns:
-            None.
-        """
-        self.species_abundance = species_abundance
-        # try to get the source code of __call__ so task graph will recompute
-        # if the function has changed
-        try:
-            self.__name__ = hashlib.sha1(
-                inspect.getsource(
-                    _PollinatorSupplyIndexOp.__call__
-                ).encode('utf-8')).hexdigest()
-        except IOError:
-            # default to the classname if it doesn't work
-            self.__name__ = (
-                _PollinatorSupplyIndexOp.__name__)
-        self.__name__ += str(species_abundance)
-
-    def __call__(
-            self, floral_resources_array, habitat_nesting_suitability_array):
-        """Calculate f_r * h_n * self.species_abundance."""
-        result = numpy.empty_like(floral_resources_array)
-        result[:] = _INDEX_NODATA
-        valid_mask = floral_resources_array != _INDEX_NODATA
-        result[valid_mask] = (
-            self.species_abundance * floral_resources_array[valid_mask] *
-            habitat_nesting_suitability_array[valid_mask])
-        return result
-
-
-class _MultByScalar(object):
-    """Calculate a raster * scalar.  Mask through nodata."""
-
-    def __init__(self, scalar):
-        """Create a closure for multiplying an array by a scalar.
-
-        Parameters:
-            scalar (float): value to use in `__call__` when multiplying by
-                its parameter.
-
-        Returns:
-            None.
-        """
-        self.scalar = scalar
-        # try to get the source code of __call__ so task graph will recompute
-        # if the function has changed
-        try:
-            self.__name__ = hashlib.sha1(
-                inspect.getsource(
-                    _MultByScalar.__call__
-                ).encode('utf-8')).hexdigest()
-        except IOError:
-            # default to the classname if it doesn't work
-            self.__name__ = (
-                _MultByScalar.__name__)
-        self.__name__ += str(scalar)
-
-    def __call__(self, array):
-        """Return array * self.scalar accounting for nodata."""
-        result = numpy.empty_like(array)
-        result[:] = _INDEX_NODATA
-        valid_mask = array != _INDEX_NODATA
-        result[valid_mask] = array[valid_mask] * self.scalar
-        return result
 
 
 class _OnFarmPollinatorAbundance(object):
@@ -1133,58 +937,4 @@ class _OnFarmPollinatorAbundance(object):
             (pat_array[valid_mask]*(1-h_array[valid_mask])) /
             (h_array[valid_mask]*(1-2*pat_array[valid_mask]) +
              pat_array[valid_mask]))
-        return result
-
-
-class _PYTOp(object):
-    """Calculate PYT=min((mp+FP), 1)."""
-
-    def __init__(self):
-        # try to get the source code of __call__ so task graph will recompute
-        # if the function has changed
-        try:
-            self.__name__ = hashlib.sha1(
-                inspect.getsource(
-                    _PYTOp.__call__
-                ).encode('utf-8')).hexdigest()
-        except IOError:
-            # default to the classname if it doesn't work
-            self.__name__ = (
-                _PYTOp.__name__)
-
-    def __call__(self, mp_array, FP_array):
-        """Return min(mp_array+FP_array, 1) accounting for nodata."""
-        valid_mask = mp_array != _INDEX_NODATA
-        result = numpy.empty_like(mp_array)
-        result[:] = _INDEX_NODATA
-        result[valid_mask] = mp_array[valid_mask]+FP_array[valid_mask]
-        min_mask = valid_mask & (result > 1.0)
-        result[min_mask] = 1.0
-        return result
-
-
-class _PYWOp(object):
-    """Calculate PYW=max(0,PYT-mp)."""
-
-    def __init__(self):
-        # try to get the source code of __call__ so task graph will recompute
-        # if the function has changed
-        try:
-            self.__name__ = hashlib.sha1(
-                inspect.getsource(
-                    _PYWOp.__call__
-                ).encode('utf-8')).hexdigest()
-        except IOError:
-            # default to the classname if it doesn't work
-            self.__name__ = (
-                _PYWOp.__name__)
-
-    def __call__(self, mp_array, PYT_array):
-        """Return max(0,PYT_array-mp_array) accounting for nodata."""
-        valid_mask = mp_array != _INDEX_NODATA
-        result = numpy.empty_like(mp_array)
-        result[:] = _INDEX_NODATA
-        result[valid_mask] = PYT_array[valid_mask]-mp_array[valid_mask]
-        max_mask = valid_mask & (result < 0.0)
-        result[max_mask] = 0.0
         return result
