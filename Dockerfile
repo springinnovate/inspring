@@ -33,7 +33,7 @@ RUN /usr/bin/python setup.py install
 WORKDIR /usr/local/
 RUN git clone https://github.com/natcap/invest.git
 WORKDIR /usr/local/invest/
-RUN git checkout release/3.9
+RUN git checkout 3.9.0
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
