@@ -21,7 +21,7 @@ matplotlib
 numpy>=1.11.0,!=1.16.0
 pandas>=0.22.0
 psutil>=5.6.6
-git+https://github.com/richpsharp/pygeoprocessing.git@48714eef1d5ec7a6ae3070ba4f539e1043987d34
+git+https://github.com/richpsharp/pygeoprocessing.git@62c39bc519d3e1b2e81ceef684f033f743921d5d
 Pyro4==4.77  # pip-only
 pytest
 requests
