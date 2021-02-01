@@ -18,7 +18,7 @@ ecoshard==0.4.1
 flask
 GDAL>=3.1.2
 matplotlib
-numpy
+numpy>=1.20.0
 pandas>=0.22.0
 psutil>=5.6.6
 Pyro4==4.77  # pip-only
