@@ -52,6 +52,14 @@ setup(
                 numpy.get_include(),
                 'src/inspring/sdr_c_factor'],
             language="c++",
-        )
+        ),
+        Extension(
+            name="inspring.floodplane_extraction",
+            sources=["src/inspring/floodplane_extraction/floodplane_extraction.pyx"],
+            include_dirs=[
+                numpy.get_include(),
+                'src/inspring/floodplane_extraction'],
+            language="c++",
+        ),
     ]
 )
