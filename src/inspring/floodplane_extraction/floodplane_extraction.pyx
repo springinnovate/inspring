@@ -26,11 +26,16 @@ from osgeo import gdal
 from osgeo import ogr
 from osgeo import osr
 import numpy
+import pandas
+import shapely
 import shapely.wkb
 import shapely.ops
+from shapely.ops import unary_union
+import scipy.optimize
 import scipy.stats
 
 import pygeoprocessing
+from pygeoprocessing.geoprocessing_core import DEFAULT_OSR_AXIS_MAPPING_STRATEGY
 
 LOGGER = logging.getLogger(__name__)
 
@@ -452,12 +457,155 @@ def _scrub_invalid_values(base_array, nodata, new_nodata):
 
 def build_flood_height():
     """floo dnight."""
+    pass
+
+
+def func_powerlaw(x, b, a):
+    return a*x**b
+
+
+def snap_points(
+        point_vector_path, key_field, line_vector_path,
+        target_snap_point_path):
+    """Snap points to nearest line."""
+    line_vector = gdal.OpenEx(line_vector_path, gdal.OF_VECTOR)
+    line_layer = line_vector.GetLayer()
+    line_srs = line_layer.GetSpatialRef()
+
+    point_vector = gdal.OpenEx(point_vector_path, gdal.OF_VECTOR)
+    point_layer = point_vector.GetLayer()
+    point_layer_defn = point_layer.GetLayerDefn()
+    key_field_defn = point_layer_defn.GetFieldDefn(
+        point_layer_defn.GetFieldIndex(key_field))
+    point_srs = point_layer.GetSpatialRef()
+
+    snap_basename = os.path.basename(
+        os.path.splitext(target_snap_point_path)[0])
+    gpkg_driver = gdal.GetDriverByName('GPKG')
+    snap_point_vector = gpkg_driver.Create(
+        target_snap_point_path, 0, 0, 0, gdal.GDT_Unknown)
+    snap_point_layer = snap_point_vector.CreateLayer(
+        snap_basename, line_srs, ogr.wkbPoint)
+    snap_point_layer.CreateField(key_field_defn)
+
+    # project stream points to stream layer projection
+    point_srs.SetAxisMappingStrategy(DEFAULT_OSR_AXIS_MAPPING_STRATEGY)
+    line_srs.SetAxisMappingStrategy(DEFAULT_OSR_AXIS_MAPPING_STRATEGY)
+
+    # Create a coordinate transformation
+    coord_trans = osr.CreateCoordinateTransformation(point_srs, line_srs)
+
+    line_segment_geom = unary_union([
+        shapely.wkb.loads(seg.GetGeometryRef().ExportToWkb())
+        for seg in line_layer])
+    for point_feature in point_layer:
+        point_geom_ref = point_feature.GetGeometryRef()
+        point_geom_ref.Transform(coord_trans)
+        point_geom = shapely.wkb.loads(point_geom_ref.ExportToWkb())
+        points = shapely.ops.nearest_points(
+            point_geom, line_segment_geom)
+        _, snapped_geom = points
+        snapped_feature = ogr.Feature(snap_point_layer.GetLayerDefn())
+        snapped_feature.SetField(
+            key_field, point_feature.GetField(key_field))
+        snapped_feature.SetGeometry(ogr.CreateGeometryFromWkb(
+            snapped_geom.wkb))
+        snap_point_layer.CreateFeature(snapped_feature)
+
+
+def build_gauge_stats(
+        flood_level_year, gauge_table_path, table_field_prefix,
+        gauge_id_field, flow_accum_path, gauge_vector_path):
+    LOGGER.info('build gauge stats')
+    gauge_df = pandas.read_csv(gauge_table_path)
+    gauge_vector = gdal.OpenEx(gauge_vector_path, gdal.OF_VECTOR)
+    gauge_layer = gauge_vector.GetLayer()
+    water_level_params_per_gauge = {}
+    flow_accum_raster_info = pygeoprocessing.get_raster_info(
+        flow_accum_path)
+    flow_accum_raster = gdal.OpenEx(flow_accum_path)
+    flow_accum_band = flow_accum_raster.GetRasterBand(1)
+    inv_gt = gdal.InvGeoTransform(flow_accum_raster_info['geotransform'])
+    water_level_list = []
+    water_level_bankfull_list = []
+    upstream_area_list = []
+    for gauge_feature in gauge_layer:
+        station_id = gauge_feature.GetField(gauge_id_field)
+        gauge_geom = gauge_feature.GetGeometryRef()
+        x_pos = gauge_geom.GetX()
+        y_pos = gauge_geom.GetY()
+        table_station_id = f'{table_field_prefix}{station_id}'
+
+        i, j = [int(p) for p in gdal.ApplyGeoTransform(inv_gt, x_pos, y_pos)]
+        fa_val = flow_accum_band.ReadAsArray(i, j, 1, 1)[0, 0]
+        if table_station_id not in gauge_df:
+            LOGGER.warning(
+                f'{table_station_id} is in the vector but not in the table, '
+                f'skipping')
+            continue
+        water_level_raw = gauge_df[table_station_id]
+        water_level_series = water_level_raw[water_level_raw >= 0]
+        sigma = water_level_series.mean()
+        mu = water_level_series.std()
+        alpha = numpy.sqrt(6)/numpy.pi * sigma * water_level_series.max()
+
+        beta = mu * water_level_series.max() - 0.5772 * alpha
+        # calculate bankfull (r=1.5) water level
+        wl_bf = beta-alpha*numpy.log(-numpy.log(1.-1./1.5))
+        wl_r = beta-alpha*numpy.log(-numpy.log(1.-1./flood_level_year))
+        water_level_bankfull_list.append(wl_bf)
+        water_level_list.append(wl_r)
+        upstream_area_list.append(fa_val)
+        water_level_params_per_gauge[station_id] = {
+            'series': water_level_series,
+            'sigma': sigma,
+            'mu': mu,
+            'max_height': max(water_level_series),
+            'fa_val': fa_val,
+        }
+    # fit power law for wl_r
+    LOGGER.info(f'water level params: {water_level_params_per_gauge}')
+    LOGGER.info('fit power law for wl_r')
+    def _power_func(x, a, b):
+        return a*x**b
+    LOGGER.info(f'fitting these areas: {upstream_area_list}')
+    LOGGER.info(f'to these water levels: {water_level_list}')
+    LOGGER.info(f'and these bankfull levels: {water_level_bankfull_list}')
+    wl_popt, wl_pcov = scipy.optimize.curve_fit(
+        _power_func, upstream_area_list, water_level_list)
+    # fit power law for wl_bf
+    LOGGER.info('fit power law for wl_bf')
+    wl_bf_popt, wl_bf_pcov = scipy.optimize.curve_fit(
+        _power_func, upstream_area_list, water_level_bankfull_list)
+    LOGGER.info(
+        f'\n'
+        f'1.5 at 1e6: {_power_func(1e6, *wl_bf_popt)}\n'
+        f'{flood_level_year} at 1e6: {_power_func(1e6, *wl_popt)}\n')
+    return {
+        'wl_popt': wl_popt,
+        'wl_bf_popt': wl_bf_popt,
+    }
+
+
+def power_func(x, a, b):
+    return a*x**b
 
 
 def floodplane_extraction(
-        dem_path, stream_gauge_vector_path, target_floodplane_raster_path,
-        min_flow_accum_threshold=2000):
+        level_year_parameter,
+        dem_path,
+        stream_gauge_vector_path,
+        gauge_table_path,
+        gauge_id_field,
+        start_year_id_field,
+        end_year_id_field,
+        year_table_column_id_field,
+        table_field_prefix,
+        target_floodplane_raster_path,
+        target_snap_point_vector_path,
+        min_flow_accum_threshold=100):
     """Entry point."""
+    LOGGER.info('snap points')
     dem_info = pygeoprocessing.get_raster_info(dem_path)
     dem_type = dem_info['numpy_type']
     working_dir = os.path.join(
@@ -484,6 +632,7 @@ def floodplane_extraction(
     fill_pits_task = task_graph.add_task(
         func=pygeoprocessing.routing.fill_pits,
         args=((scrubbed_dem_path, 1), filled_pits_path),
+        kwargs={'max_pixel_fill_count': 1000000},
         target_path_list=[filled_pits_path],
         dependent_task_list=[scrub_dem_task],
         task_name='fill pits')
@@ -518,8 +667,31 @@ def floodplane_extraction(
             'min_flow_accum_threshold': min_flow_accum_threshold,
             'river_order': 7},
         target_path_list=[stream_vector_path],
+        ignore_path_list=[stream_vector_path],
         dependent_task_list=[flow_accum_task],
         task_name='stream extraction')
+
+    snap_points_task = task_graph.add_task(
+        func=snap_points,
+        args=(
+            stream_gauge_vector_path, gauge_id_field, stream_vector_path,
+            target_snap_point_vector_path),
+        target_path_list=[target_snap_point_vector_path],
+        dependent_task_list=[extract_stream_task],
+        task_name='snap points')
+
+    build_gauge_stats_task = task_graph.add_task(
+        func=build_gauge_stats,
+        args=(
+            level_year_parameter, gauge_table_path, table_field_prefix,
+            gauge_id_field,
+            flow_accum_d8_path, target_snap_point_vector_path),
+        dependent_task_list=[snap_points_task],
+        store_result=True,
+        transient_run=True,
+        task_name='build gauge stats')
+
+    LOGGER.debug(build_gauge_stats_task.get())
 
     target_watershed_boundary_vector_path = os.path.join(
         working_dir, 'watershed_boundary.gpkg')
@@ -528,8 +700,13 @@ def floodplane_extraction(
         args=(
             (flow_dir_d8_path, 1), stream_vector_path,
             target_watershed_boundary_vector_path),
+        kwargs={'outlet_at_confluence': False},
         target_path_list=[target_watershed_boundary_vector_path],
         transient_run=True,
         dependent_task_list=[extract_stream_task],
         task_name='watershed boundary')
 
+    # Fill the subwatersheds to the flow height
+
+    task_graph.close()
+    task_graph.join()
