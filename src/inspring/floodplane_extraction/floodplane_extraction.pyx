@@ -597,10 +597,8 @@ def floodplane_extraction(
         stream_gauge_vector_path,
         gauge_table_path,
         gauge_id_field,
-        start_year_id_field,
-        end_year_id_field,
-        year_table_column_id_field,
         table_field_prefix,
+        target_stream_vector_path,
         target_floodplane_raster_path,
         target_snap_point_vector_path,
         min_flow_accum_threshold=100):
@@ -656,25 +654,24 @@ def floodplane_extraction(
         dependent_task_list=[flow_dir_task],
         task_name='flow accum d8')
 
-    stream_vector_path = os.path.join(
-        working_dir, f'stream_segments_{min_flow_accum_threshold}.gpkg')
+    target_stream_vector_path
     extract_stream_task = task_graph.add_task(
         func=pygeoprocessing.routing.extract_strahler_streams_d8,
         args=(
             (flow_dir_d8_path, 1), (flow_accum_d8_path, 1),
-            (filled_pits_path, 1), stream_vector_path),
+            (filled_pits_path, 1), target_stream_vector_path),
         kwargs={
             'min_flow_accum_threshold': min_flow_accum_threshold,
             'river_order': 7},
-        target_path_list=[stream_vector_path],
-        ignore_path_list=[stream_vector_path],
+        target_path_list=[target_stream_vector_path],
+        ignore_path_list=[target_stream_vector_path],
         dependent_task_list=[flow_accum_task],
         task_name='stream extraction')
 
     snap_points_task = task_graph.add_task(
         func=snap_points,
         args=(
-            stream_gauge_vector_path, gauge_id_field, stream_vector_path,
+            stream_gauge_vector_path, gauge_id_field, target_stream_vector_path,
             target_snap_point_vector_path),
         target_path_list=[target_snap_point_vector_path],
         dependent_task_list=[extract_stream_task],
@@ -698,7 +695,7 @@ def floodplane_extraction(
     calculate_watershed_boundary_task = task_graph.add_task(
         func=pygeoprocessing.routing.calculate_subwatershed_boundary,
         args=(
-            (flow_dir_d8_path, 1), stream_vector_path,
+            (flow_dir_d8_path, 1), target_stream_vector_path,
             target_watershed_boundary_vector_path),
         kwargs={'outlet_at_confluence': False},
         target_path_list=[target_watershed_boundary_vector_path],
