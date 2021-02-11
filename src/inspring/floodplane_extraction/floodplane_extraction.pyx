@@ -565,24 +565,15 @@ def build_gauge_stats(
             'max_height': max(water_level_series),
             'fa_val': fa_val,
         }
-    # fit power law for wl_r
-    LOGGER.info(f'water level params: {water_level_params_per_gauge}')
-    LOGGER.info('fit power law for wl_r')
+
     def _power_func(x, a, b):
         return a*x**b
-    LOGGER.info(f'fitting these areas: {upstream_area_list}')
-    LOGGER.info(f'to these water levels: {water_level_list}')
-    LOGGER.info(f'and these bankfull levels: {water_level_bankfull_list}')
+    # fit power law for wl_r
     wl_popt, wl_pcov = scipy.optimize.curve_fit(
         _power_func, upstream_area_list, water_level_list)
     # fit power law for wl_bf
-    LOGGER.info('fit power law for wl_bf')
     wl_bf_popt, wl_bf_pcov = scipy.optimize.curve_fit(
         _power_func, upstream_area_list, water_level_bankfull_list)
-    LOGGER.info(
-        f'\n'
-        f'1.5 at 1e6: {_power_func(1e6, *wl_bf_popt)}\n'
-        f'{flood_level_year} at 1e6: {_power_func(1e6, *wl_popt)}\n')
     return {
         'wl_pow_params': (wl_popt[0], wl_popt[1]),
         'wl_bf_pow_params': (wl_bf_popt[0], wl_bf_popt[1]),
@@ -617,14 +608,15 @@ def _stitch_worker(
 def _subwatershed_worker(
         dem_raster_path, flow_accum_raster_path,
         subwatershed_vector_path, pow_params_map,
-        watershed_fid_process_queue, stitch_queue,
+        watershed_fid_process_queue, stitch_queue, watershed_stat_queue,
         working_dir):
     """Calculate flood height for the given watershed queue."""
     subwatershed_vector = gdal.OpenEx(
         subwatershed_vector_path, gdal.OF_VECTOR)
     subwatershed_layer = subwatershed_vector.GetLayer()
     dem_raster_info = pygeoprocessing.get_raster_info(dem_raster_path)
-    cell_area = abs(numpy.prod(dem_raster_info['pixel_size']))
+    pixel_size = dem_raster_info['pixel_size']
+    cell_area = abs(numpy.prod(pixel_size))
     dem_nodata = dem_raster_info['nodata'][0]
     dem_raster = gdal.OpenEx(dem_raster_path, gdal.OF_RASTER)
     dem_band = dem_raster.GetRasterBand(1)
@@ -639,14 +631,13 @@ def _subwatershed_worker(
         if payload is None:
             LOGGER.info('all done filling subwatersheds')
             watershed_fid_process_queue.put(None)
-            stitch_queue.put(None)
             break
         subwatershed_fid = payload
         subwatershed_feature = subwatershed_layer.GetFeature(
             subwatershed_fid)
         outlet_x = subwatershed_feature.GetField('outlet_x')
         outlet_y = subwatershed_feature.GetField('outlet_y')
-        base_height = dem_band.ReadAsArray(outlet_x, outlet_y, 1, 1)[0, 0]
+        outlet_dem_val = dem_band.ReadAsArray(outlet_x, outlet_y, 1, 1)[0, 0]
         upstream_area = cell_area * flow_accum_band.ReadAsArray(
             outlet_x, outlet_y, 1, 1)[0, 0]
 
@@ -660,18 +651,28 @@ def _subwatershed_worker(
             working_dir, f'{subwatershed_fid}_dem.tif')
         subwatershed_envelope = subwatershed_geom.GetEnvelope()
         subwatershed_bounds = [
-            subwatershed_envelope[i] for i in [0, 2, 1, 3]]
+            subwatershed_envelope[i]+offset for i, offset in [
+                (0, -pixel_size[0]),
+                (2, -pixel_size[1]),
+                (1, pixel_size[0]),
+                (3, pixel_size[1])]]
         pygeoprocessing.warp_raster(
-            dem_raster_path, dem_raster_info['pixel_size'],
+            dem_raster_path, pixel_size,
             subwatershed_dem_path, 'near', target_bb=subwatershed_bounds,
             vector_mask_options={
                 'mask_vector_path': subwatershed_vector_path,
                 'mask_vector_where_filter': (
                     f'"fid"={subwatershed_fid}')},
-            gdal_warp_options=['targetAlignedPixels=True'],
             working_dir=working_dir)
 
-        local_flood_height = water_level_val-water_level_bankflow_val
+        watershed_stat_queue.put((subwatershed_fid, {
+            'upstream_area': upstream_area,
+            'outlet_dem_val': outlet_dem_val,
+            'local_flood_height': local_flood_height,
+        }))
+
+        local_flood_height = (
+            water_level_val-water_level_bankflow_val+outlet_dem_val)
         flood_height_raster_path = os.path.join(
             working_dir, f'{subwatershed_fid}_flood_height.tif')
         pygeoprocessing.raster_calculator(
@@ -699,8 +700,14 @@ def calculate_floodheight(
     """Create raster that shows floodheights of dem."""
     LOGGER.debug(subwatershed_vector_path)
     subwatershed_vector = gdal.OpenEx(
-        subwatershed_vector_path, gdal.OF_VECTOR)
+        subwatershed_vector_path, gdal.OF_VECTOR | gdal.GA_Update)
     subwatershed_layer = subwatershed_vector.GetLayer()
+    subwatershed_layer.CreateField(
+        ogr.FieldDefn('upstream_area', ogr.OFTReal))
+    subwatershed_layer.CreateField(
+        ogr.FieldDefn('outlet_dem_val', ogr.OFTReal))
+    subwatershed_layer.CreateField(
+        ogr.FieldDefn('local_flood_height', ogr.OFTReal))
     dem_raster_info = pygeoprocessing.get_raster_info(dem_raster_path)
     dem_nodata = dem_raster_info['nodata'][0]
     dem_raster = gdal.OpenEx(dem_raster_path, gdal.OF_RASTER)
@@ -713,6 +720,7 @@ def calculate_floodheight(
     manager = multiprocessing.Manager()
     stitch_raster_path_queue = manager.Queue()
     watershed_fid_process_queue = manager.Queue()
+    watershed_stat_queue = manager.Queue()
 
     stitch_worker_process = multiprocessing.Process(
         target=_stitch_worker,
@@ -726,18 +734,40 @@ def calculate_floodheight(
                 dem_raster_path, flow_accum_raster_path,
                 subwatershed_vector_path, pow_params_map,
                 watershed_fid_process_queue, stitch_raster_path_queue,
+                watershed_stat_queue,
                 working_dir))
         subwatershed_worker_process.start()
         subwatershed_worker_process_list.append(subwatershed_worker_process)
 
-    for subwatershed_feature in subwatershed_layer:
+    subwatershed_fid_list = [
+        subwatershed_feature.GetFID()
+        for subwatershed_feature in subwatershed_layer]
+    subwatershed_layer = None
+    subwatershed_vector = None
+
+    for subwatershed_feature in subwatershed_fid_list:
         subwatershed_fid = subwatershed_feature.GetFID()
         watershed_fid_process_queue.put(subwatershed_fid)
     watershed_fid_process_queue.put(None)
 
-    for worker_process in subwatershed_worker_process_list + [
-            stitch_worker_process]:
+    for worker_process in subwatershed_worker_process_list:
         worker_process.join()
+    stitch_raster_path_queue.put(None)
+
+    watershed_stat_queue.put(None)
+    subwatershed_vector = gdal.OpenEx(
+        subwatershed_vector_path, gdal.OF_VECTOR | gdal.GA_Update)
+    subwatershed_layer = subwatershed_vector.GetLayer()
+
+    for fid, field_dict in iter(watershed_stat_queue.get, None):
+        subwatershed_feature = subwatershed_layer.GetFeature(fid)
+        for fieldname, val in field_dict.items():
+            subwatershed_feature.SetField(fieldname, val)
+        subwatershed_layer.SetFeature(subwatershed_feature)
+    subwatershed_layer = None
+    subwatershed_vector = None
+
+    stitch_worker_process.join()
     LOGGER.info('all done calculating floodheight')
 
 
