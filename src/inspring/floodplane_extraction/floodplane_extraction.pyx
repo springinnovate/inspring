@@ -2,6 +2,7 @@
 # cython: language_level=3
 import collections
 import logging
+import multiprocessing
 import os
 import shutil
 import taskgraph
@@ -523,6 +524,7 @@ def build_gauge_stats(
     water_level_params_per_gauge = {}
     flow_accum_raster_info = pygeoprocessing.get_raster_info(
         flow_accum_path)
+    cell_area = abs(numpy.prod(flow_accum_raster_info['pixel_size']))
     flow_accum_raster = gdal.OpenEx(flow_accum_path)
     flow_accum_band = flow_accum_raster.GetRasterBand(1)
     inv_gt = gdal.InvGeoTransform(flow_accum_raster_info['geotransform'])
@@ -537,7 +539,7 @@ def build_gauge_stats(
         table_station_id = f'{table_field_prefix}{station_id}'
 
         i, j = [int(p) for p in gdal.ApplyGeoTransform(inv_gt, x_pos, y_pos)]
-        fa_val = flow_accum_band.ReadAsArray(i, j, 1, 1)[0, 0]
+        fa_val = flow_accum_band.ReadAsArray(i, j, 1, 1)[0, 0] * cell_area
         if table_station_id not in gauge_df:
             LOGGER.warning(
                 f'{table_station_id} is in the vector but not in the table, '
@@ -547,9 +549,9 @@ def build_gauge_stats(
         water_level_series = water_level_raw[water_level_raw >= 0]
         sigma = water_level_series.mean()
         mu = water_level_series.std()
-        alpha = numpy.sqrt(6)/numpy.pi * sigma * water_level_series.max()
+        alpha = numpy.sqrt(6)/numpy.pi * mu * water_level_series.max()
 
-        beta = mu * water_level_series.max() - 0.5772 * alpha
+        beta = sigma * water_level_series.max() - 0.5772 * alpha
         # calculate bankfull (r=1.5) water level
         wl_bf = beta-alpha*numpy.log(-numpy.log(1.-1./1.5))
         wl_r = beta-alpha*numpy.log(-numpy.log(1.-1./flood_level_year))
@@ -582,9 +584,171 @@ def build_gauge_stats(
         f'1.5 at 1e6: {_power_func(1e6, *wl_bf_popt)}\n'
         f'{flood_level_year} at 1e6: {_power_func(1e6, *wl_popt)}\n')
     return {
-        'wl_popt': wl_popt,
-        'wl_bf_popt': wl_bf_popt,
+        'wl_pow_params': (wl_popt[0], wl_popt[1]),
+        'wl_bf_pow_params': (wl_bf_popt[0], wl_bf_popt[1]),
     }
+
+
+def _stitch_worker(
+        stitch_raster_queue, target_stitch_raster_path, batch_size=100):
+    """Stitch rasters from the queue into target."""
+    n_to_stitch = 0
+    current_stitch_list = []
+    while True:
+        payload = stitch_raster_queue.get()
+        if payload is not None:
+            current_stitch_list.append((payload, 1))
+        if len(current_stitch_list) == batch_size or payload is None:
+            LOGGER.info(
+                f'stitching a batch of size {len(current_stitch_list)}')
+            pygeoprocessing.stitch_rasters(
+                current_stitch_list,
+                ['near']*len(current_stitch_list),
+                (target_stitch_raster_path, 1),
+                overlap_algorithm='etch')
+            for path, _ in current_stitch_list:
+                os.remove(path)
+            current_stitch_list = []
+        if payload is None:
+            LOGGER.info(f'all done stitching {target_stitch_raster_path}')
+            break
+
+
+def _subwatershed_worker(
+        dem_raster_path, flow_accum_raster_path,
+        subwatershed_vector_path, pow_params_map,
+        watershed_fid_process_queue, stitch_queue,
+        working_dir):
+    """Calculate flood height for the given watershed queue."""
+    subwatershed_vector = gdal.OpenEx(
+        subwatershed_vector_path, gdal.OF_VECTOR)
+    subwatershed_layer = subwatershed_vector.GetLayer()
+    dem_raster_info = pygeoprocessing.get_raster_info(dem_raster_path)
+    cell_area = abs(numpy.prod(dem_raster_info['pixel_size']))
+    dem_nodata = dem_raster_info['nodata'][0]
+    dem_raster = gdal.OpenEx(dem_raster_path, gdal.OF_RASTER)
+    dem_band = dem_raster.GetRasterBand(1)
+    flow_accum_raster = gdal.OpenEx(flow_accum_raster_path, gdal.OF_RASTER)
+    flow_accum_band = flow_accum_raster.GetRasterBand(1)
+
+    subwatershed_vector = gdal.OpenEx(
+        subwatershed_vector_path, gdal.OF_VECTOR)
+    subwatershed_layer = subwatershed_vector.GetLayer()
+    while True:
+        payload = watershed_fid_process_queue.get()
+        if payload is None:
+            LOGGER.info('all done filling subwatersheds')
+            watershed_fid_process_queue.put(None)
+            stitch_queue.put(None)
+            break
+        subwatershed_fid = payload
+        subwatershed_feature = subwatershed_layer.GetFeature(
+            subwatershed_fid)
+        outlet_x = subwatershed_feature.GetField('outlet_x')
+        outlet_y = subwatershed_feature.GetField('outlet_y')
+        base_height = dem_band.ReadAsArray(outlet_x, outlet_y, 1, 1)[0, 0]
+        upstream_area = cell_area * flow_accum_band.ReadAsArray(
+            outlet_x, outlet_y, 1, 1)[0, 0]
+
+        water_level_val = power_func(
+            upstream_area, *pow_params_map['wl_pow_params'])
+        water_level_bankflow_val = power_func(
+            upstream_area, *pow_params_map['wl_bf_pow_params'])
+
+        subwatershed_geom = subwatershed_feature.GetGeometryRef()
+        subwatershed_dem_path = os.path.join(
+            working_dir, f'{subwatershed_fid}_dem.tif')
+        subwatershed_envelope = subwatershed_geom.GetEnvelope()
+        subwatershed_bounds = [
+            subwatershed_envelope[i] for i in [0, 2, 1, 3]]
+        pygeoprocessing.warp_raster(
+            dem_raster_path, dem_raster_info['pixel_size'],
+            subwatershed_dem_path, 'near', target_bb=subwatershed_bounds,
+            vector_mask_options={
+                'mask_vector_path': subwatershed_vector_path,
+                'mask_vector_where_filter': (
+                    f'"fid"={subwatershed_fid}')},
+            gdal_warp_options=['targetAlignedPixels=True'],
+            working_dir=working_dir)
+
+        local_flood_height = water_level_val-water_level_bankflow_val
+        flood_height_raster_path = os.path.join(
+            working_dir, f'{subwatershed_fid}_flood_height.tif')
+        pygeoprocessing.raster_calculator(
+            [(subwatershed_dem_path, 1),
+             (local_flood_height, 'raw'),
+             (dem_nodata, 'raw')], _flood_height_op,
+            flood_height_raster_path, dem_raster_info['datatype'],
+            dem_nodata)
+
+        stitch_queue.put(flood_height_raster_path)
+        os.remove(subwatershed_dem_path)
+
+    dem_raster = None
+    dem_band = None
+    flow_accum_raster = None
+    flow_accum_band = None
+
+
+def calculate_floodheight(
+        t_return_parameter, dem_raster_path, flow_accum_raster_path,
+        subwatershed_vector_path,
+        pow_params_map,
+        target_floodplane_raster_path,
+        working_dir):
+    """Create raster that shows floodheights of dem."""
+    LOGGER.debug(subwatershed_vector_path)
+    subwatershed_vector = gdal.OpenEx(
+        subwatershed_vector_path, gdal.OF_VECTOR)
+    subwatershed_layer = subwatershed_vector.GetLayer()
+    dem_raster_info = pygeoprocessing.get_raster_info(dem_raster_path)
+    dem_nodata = dem_raster_info['nodata'][0]
+    dem_raster = gdal.OpenEx(dem_raster_path, gdal.OF_RASTER)
+    dem_band = dem_raster.GetRasterBand(1)
+    flow_accum_raster = gdal.OpenEx(flow_accum_raster_path, gdal.OF_RASTER)
+    flow_accum_band = flow_accum_raster.GetRasterBand(1)
+    pygeoprocessing.new_raster_from_base(
+        dem_raster_path, target_floodplane_raster_path,
+        dem_raster_info['datatype'], [dem_nodata])
+    manager = multiprocessing.Manager()
+    stitch_raster_path_queue = manager.Queue()
+    watershed_fid_process_queue = manager.Queue()
+
+    stitch_worker_process = multiprocessing.Process(
+        target=_stitch_worker,
+        args=(stitch_raster_path_queue, target_floodplane_raster_path))
+    stitch_worker_process.start()
+    subwatershed_worker_process_list = []
+    for _ in range(multiprocessing.cpu_count()):
+        subwatershed_worker_process = multiprocessing.Process(
+            target=_subwatershed_worker,
+            args=(
+                dem_raster_path, flow_accum_raster_path,
+                subwatershed_vector_path, pow_params_map,
+                watershed_fid_process_queue, stitch_raster_path_queue,
+                working_dir))
+        subwatershed_worker_process.start()
+        subwatershed_worker_process_list.append(subwatershed_worker_process)
+
+    for subwatershed_feature in subwatershed_layer:
+        subwatershed_fid = subwatershed_feature.GetFID()
+        watershed_fid_process_queue.put(subwatershed_fid)
+    watershed_fid_process_queue.put(None)
+
+    for worker_process in subwatershed_worker_process_list + [
+            stitch_worker_process]:
+        worker_process.join()
+    LOGGER.info('all done calculating floodheight')
+
+
+def _flood_height_op(dem_height_array, flood_level_height, nodata):
+    result = numpy.full(
+        dem_height_array.shape, nodata, dtype=dem_height_array.dtype)
+    valid_mask = (~numpy.isclose(dem_height_array, nodata))
+    flood_height = flood_level_height-dem_height_array[valid_mask]
+    flood_height[flood_height < 0] = 0
+    result[valid_mask] = flood_height
+    return result
 
 
 def power_func(x, a, b):
@@ -592,7 +756,7 @@ def power_func(x, a, b):
 
 
 def floodplane_extraction(
-        level_year_parameter,
+        t_return_parameter,
         dem_path,
         stream_gauge_vector_path,
         gauge_table_path,
@@ -680,7 +844,7 @@ def floodplane_extraction(
     build_gauge_stats_task = task_graph.add_task(
         func=build_gauge_stats,
         args=(
-            level_year_parameter, gauge_table_path, table_field_prefix,
+            t_return_parameter, gauge_table_path, table_field_prefix,
             gauge_id_field,
             flow_accum_d8_path, target_snap_point_vector_path),
         dependent_task_list=[snap_points_task],
@@ -699,11 +863,19 @@ def floodplane_extraction(
             target_watershed_boundary_vector_path),
         kwargs={'outlet_at_confluence': False},
         target_path_list=[target_watershed_boundary_vector_path],
-        transient_run=True,
+        ignore_path_list=[target_watershed_boundary_vector_path],
         dependent_task_list=[extract_stream_task],
         task_name='watershed boundary')
 
     # Fill the subwatersheds to the flow height
+    calculate_floodheight(
+        t_return_parameter,
+        filled_pits_path,
+        flow_accum_d8_path,
+        target_watershed_boundary_vector_path,
+        build_gauge_stats_task.get(),
+        target_floodplane_raster_path,
+        working_dir)
 
     task_graph.close()
     task_graph.join()
