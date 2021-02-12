@@ -598,7 +598,7 @@ def _stitch_worker(
                 (target_stitch_raster_path, 1),
                 overlap_algorithm='etch')
             for path, _ in current_stitch_list:
-                pass #os.remove(path)
+                os.remove(path)
             current_stitch_list = []
         if payload is None:
             LOGGER.info(f'all done stitching {target_stitch_raster_path}')
