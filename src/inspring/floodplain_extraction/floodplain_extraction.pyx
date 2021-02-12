@@ -797,6 +797,7 @@ def floodplain_extraction(
         gauge_id_field,
         table_field_prefix,
         target_stream_vector_path,
+        target_watershed_boundary_vector_path,
         target_floodplain_raster_path,
         target_snap_point_vector_path):
     """Build a floodplain simulation with given parameters.
