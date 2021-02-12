@@ -790,6 +790,7 @@ def power_func(x, a, b):
 
 def floodplane_extraction(
         t_return_parameter,
+        min_flow_accum_threshold,
         dem_path,
         stream_gauge_vector_path,
         gauge_table_path,
@@ -797,14 +798,15 @@ def floodplane_extraction(
         table_field_prefix,
         target_stream_vector_path,
         target_floodplain_raster_path,
-        target_snap_point_vector_path,
-        min_flow_accum_threshold=100):
+        target_snap_point_vector_path):
     """Build a floodplane simulation with given parameters.
 
     Args:
         t_return_parameter (float): the return year to estimate the flood
             height. Bankfull heights are estimated at
             ``t_return_parameter``=1.5. A 10 year flood would be 10.0, etc.
+        min_flow_accum_threshold (int): this is the upstream flow
+            accumulation used to classify streams.
         dem_path (str): path to DEM raster used for determining streams,
             subwatersheds, and upstream drainage area.
         stream_gauge_vector_path (str): path to a point vector used to
@@ -831,8 +833,6 @@ def floodplane_extraction(
             floodplain raster
         target_snap_point_vector_path (str): this is the desired target path
             to the snapped stream gauge vector.
-        min_flow_accum_threshold (int): this is the upstream flow
-            accumulation used to classify streams.
 
     Return:
         None.
