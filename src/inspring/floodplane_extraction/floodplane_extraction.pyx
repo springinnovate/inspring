@@ -539,7 +539,7 @@ def build_gauge_stats(
         table_station_id = f'{table_field_prefix}{station_id}'
 
         i, j = [int(p) for p in gdal.ApplyGeoTransform(inv_gt, x_pos, y_pos)]
-        fa_val = flow_accum_band.ReadAsArray(i, j, 1, 1)[0, 0] * cell_area
+        fa_val = flow_accum_band.ReadAsArray(i, j, 1, 1)[0, 0]
         if table_station_id not in gauge_df:
             LOGGER.warning(
                 f'{table_station_id} is in the vector but not in the table, '
@@ -549,9 +549,9 @@ def build_gauge_stats(
         water_level_series = water_level_raw[water_level_raw >= 0]
         sigma = water_level_series.mean()
         mu = water_level_series.std()
-        alpha = numpy.sqrt(6)/numpy.pi * mu * water_level_series.max()
+        alpha = numpy.sqrt(6)/numpy.pi * mu
+        beta = sigma - 0.5772 * alpha
 
-        beta = sigma * water_level_series.max() - 0.5772 * alpha
         # calculate bankfull (r=1.5) water level
         wl_bf = beta-alpha*numpy.log(-numpy.log(1.-1./1.5))
         wl_r = beta-alpha*numpy.log(-numpy.log(1.-1./flood_level_year))
@@ -598,7 +598,7 @@ def _stitch_worker(
                 (target_stitch_raster_path, 1),
                 overlap_algorithm='etch')
             for path, _ in current_stitch_list:
-                os.remove(path)
+                pass #os.remove(path)
             current_stitch_list = []
         if payload is None:
             LOGGER.info(f'all done stitching {target_stitch_raster_path}')
@@ -638,7 +638,7 @@ def _subwatershed_worker(
         outlet_x = subwatershed_feature.GetField('outlet_x')
         outlet_y = subwatershed_feature.GetField('outlet_y')
         outlet_dem_val = dem_band.ReadAsArray(outlet_x, outlet_y, 1, 1)[0, 0]
-        upstream_area = cell_area * flow_accum_band.ReadAsArray(
+        upstream_area = flow_accum_band.ReadAsArray(
             outlet_x, outlet_y, 1, 1)[0, 0]
 
         water_level_val = power_func(
@@ -653,9 +653,9 @@ def _subwatershed_worker(
         subwatershed_bounds = [
             subwatershed_envelope[i]+offset for i, offset in [
                 (0, -pixel_size[0]),
-                (2, -pixel_size[1]),
+                (2, pixel_size[1]),
                 (1, pixel_size[0]),
-                (3, pixel_size[1])]]
+                (3, -pixel_size[1])]]
         pygeoprocessing.warp_raster(
             dem_raster_path, pixel_size,
             subwatershed_dem_path, 'near', target_bb=subwatershed_bounds,
@@ -665,14 +665,15 @@ def _subwatershed_worker(
                     f'"fid"={subwatershed_fid}')},
             working_dir=working_dir)
 
+        local_flood_height = (
+            water_level_val-water_level_bankflow_val+outlet_dem_val)
+
         watershed_stat_queue.put((subwatershed_fid, {
             'upstream_area': upstream_area,
             'outlet_dem_val': outlet_dem_val,
             'local_flood_height': local_flood_height,
         }))
 
-        local_flood_height = (
-            water_level_val-water_level_bankflow_val+outlet_dem_val)
         flood_height_raster_path = os.path.join(
             working_dir, f'{subwatershed_fid}_flood_height.tif')
         pygeoprocessing.raster_calculator(
@@ -745,8 +746,7 @@ def calculate_floodheight(
     subwatershed_layer = None
     subwatershed_vector = None
 
-    for subwatershed_feature in subwatershed_fid_list:
-        subwatershed_fid = subwatershed_feature.GetFID()
+    for subwatershed_fid in subwatershed_fid_list:
         watershed_fid_process_queue.put(subwatershed_fid)
     watershed_fid_process_queue.put(None)
 
@@ -761,13 +761,16 @@ def calculate_floodheight(
 
     for fid, field_dict in iter(watershed_stat_queue.get, None):
         subwatershed_feature = subwatershed_layer.GetFeature(fid)
+        LOGGER.debug(f'fid: {fid}')
         for fieldname, val in field_dict.items():
-            subwatershed_feature.SetField(fieldname, val)
+            LOGGER.debug(f'\t\t{fieldname} {val}')
+            subwatershed_feature.SetField(fieldname, float(val))
         subwatershed_layer.SetFeature(subwatershed_feature)
     subwatershed_layer = None
     subwatershed_vector = None
 
     stitch_worker_process.join()
+    LOGGER.info(f'pow params: {pow_params_map}')
     LOGGER.info('all done calculating floodheight')
 
 
@@ -886,16 +889,17 @@ def floodplane_extraction(
 
     target_watershed_boundary_vector_path = os.path.join(
         working_dir, 'watershed_boundary.gpkg')
-    calculate_watershed_boundary_task = task_graph.add_task(
-        func=pygeoprocessing.routing.calculate_subwatershed_boundary,
-        args=(
-            (flow_dir_d8_path, 1), target_stream_vector_path,
-            target_watershed_boundary_vector_path),
-        kwargs={'outlet_at_confluence': False},
-        target_path_list=[target_watershed_boundary_vector_path],
-        ignore_path_list=[target_watershed_boundary_vector_path],
-        dependent_task_list=[extract_stream_task],
-        task_name='watershed boundary')
+    if not os.path.exists(target_watershed_boundary_vector_path):
+        calculate_watershed_boundary_task = task_graph.add_task(
+            func=pygeoprocessing.routing.calculate_subwatershed_boundary,
+            args=(
+                (flow_dir_d8_path, 1), target_stream_vector_path,
+                target_watershed_boundary_vector_path),
+            kwargs={'outlet_at_confluence': False},
+            target_path_list=[target_watershed_boundary_vector_path],
+            ignore_path_list=[target_watershed_boundary_vector_path],
+            dependent_task_list=[extract_stream_task],
+            task_name='watershed boundary')
 
     # Fill the subwatersheds to the flow height
     calculate_floodheight(
