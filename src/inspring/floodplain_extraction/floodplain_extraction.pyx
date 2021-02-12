@@ -788,7 +788,7 @@ def power_func(x, a, b):
     return a*x**b
 
 
-def floodplane_extraction(
+def floodplain_extraction(
         t_return_parameter,
         min_flow_accum_threshold,
         dem_path,
@@ -799,7 +799,7 @@ def floodplane_extraction(
         target_stream_vector_path,
         target_floodplain_raster_path,
         target_snap_point_vector_path):
-    """Build a floodplane simulation with given parameters.
+    """Build a floodplain simulation with given parameters.
 
     Args:
         t_return_parameter (float): the return year to estimate the flood

@@ -54,11 +54,11 @@ setup(
             language="c++",
         ),
         Extension(
-            name="inspring.floodplane_extraction.floodplane_extraction",
-            sources=["src/inspring/floodplane_extraction/floodplane_extraction.pyx"],
+            name="inspring.floodplain_extraction.floodplain_extraction",
+            sources=["src/inspring/floodplain_extraction/floodplain_extraction.pyx"],
             include_dirs=[
                 numpy.get_include(),
-                'src/inspring/floodplane_extraction'],
+                'src/inspring/floodplain_extraction'],
             language="c++",
         ),
     ]
