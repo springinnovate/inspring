@@ -488,6 +488,8 @@ def snap_points(
     snap_point_layer = snap_point_vector.CreateLayer(
         snap_basename, line_srs, ogr.wkbPoint)
     snap_point_layer.CreateField(key_field_defn)
+    snap_point_layer.CreateField(
+        ogr.FieldDefn('snap_distance', ogr.OFTReal))
 
     # project stream points to stream layer projection
     point_srs.SetAxisMappingStrategy(DEFAULT_OSR_AXIS_MAPPING_STRATEGY)
@@ -511,6 +513,8 @@ def snap_points(
             key_field, point_feature.GetField(key_field))
         snapped_feature.SetGeometry(ogr.CreateGeometryFromWkb(
             snapped_geom.wkb))
+        snapped_feature.SetField(
+            'snap_distance', snapped_geom.distance(point_geom))
         snap_point_layer.CreateFeature(snapped_feature)
 
 
@@ -825,7 +829,6 @@ def floodplain_extraction(
     Return:
         None.
     """
-    LOGGER.info('snap points')
     dem_info = pygeoprocessing.get_raster_info(dem_path)
     dem_type = dem_info['numpy_type']
     working_dir = os.path.join(
