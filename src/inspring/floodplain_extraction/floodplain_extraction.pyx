@@ -913,9 +913,6 @@ def floodplain_extraction(
         transient_run=True,
         task_name='build gauge stats')
 
-    LOGGER.debug(f'{build_gauge_stats_task}')
-    return
-
     if not os.path.exists(target_watershed_boundary_vector_path):
         calculate_watershed_boundary_task = task_graph.add_task(
             func=pygeoprocessing.routing.calculate_subwatershed_boundary,
