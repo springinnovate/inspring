@@ -836,7 +836,10 @@ def floodplain_extraction(
         f'''workspace_{os.path.basename(os.path.splitext(
             target_floodplain_raster_path)[0])}''')
     nodata = dem_info['nodata'][0]
-    new_nodata = float(numpy.finfo(dem_type).min)
+    if isinstance(dem_type, float):
+        new_nodata = float(numpy.finfo(dem_type).min)
+    else:
+        new_nodata = int(numpy.iinfo(dem_type).min)
 
     scrubbed_dem_path = os.path.join(working_dir, 'scrubbed_dem.tif')
     task_graph = taskgraph.TaskGraph(working_dir, -1)
