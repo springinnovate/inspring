@@ -8,7 +8,7 @@ from osgeo import osr
 import pygeoprocessing
 import numpy
 
-import ndr_plus_cython
+from inspring.ndr_plus import ndr_plus_cython
 
 LOGGER = logging.getLogger(__name__)
 NODATA = -9999
