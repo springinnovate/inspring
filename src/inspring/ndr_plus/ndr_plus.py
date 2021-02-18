@@ -1,13 +1,336 @@
 """Primary script for NDR plus."""
 import logging
 import os
+import warnings
 
 from osgeo import gdal
 from osgeo import osr
 import pygeoprocessing
 import numpy
 
+import ndr_plus_cython
+
 LOGGER = logging.getLogger(__name__)
+NODATA = -9999
+USE_AG_LOAD_ID = 999
+
+
+def mult_arrays(
+        target_raster_path, gdal_type, target_nodata, raster_path_list):
+    """Multiply arrays and be careful of nodata values."""
+    nodata_array = numpy.array([
+        pygeoprocessing.get_raster_info(path)['nodata'][0]
+        for path in raster_path_list])
+
+    def _mult_arrays(*array_list):
+        """Multiply arrays in array list but block out stacks with NODATA."""
+        try:
+            stack = numpy.stack(array_list)
+            valid_mask = (numpy.bitwise_and.reduce(
+                [~numpy.isclose(nodata, array)
+                 for nodata, array in zip(nodata_array, stack)], axis=0))
+            n_valid = numpy.count_nonzero(valid_mask)
+            broadcast_valid_mask = numpy.broadcast_to(valid_mask, stack.shape)
+            valid_stack = stack[broadcast_valid_mask].reshape(
+                len(array_list), n_valid)
+            result = numpy.empty(array_list[0].shape, dtype=numpy.float64)
+            result[:] = NODATA
+            result[valid_mask] = numpy.prod(valid_stack, axis=0)
+            return result
+        except Exception:
+            LOGGER.exception(
+                'values: %s', array_list)
+            raise
+
+    pygeoprocessing.raster_calculator(
+        [(path, 1) for path in raster_path_list], _mult_arrays,
+        target_raster_path, gdal_type, target_nodata)
+
+
+def calculate_ndr(downstream_ret_eff_path, ic_path, k_val, target_ndr_path):
+    """Calculate NDR raster.
+
+    Parameters:
+        downstream_ret_eff_path (string): path to downstream retention
+            raster.
+        ic_path (string): path to IC raster
+        k_val (float): value of k in Eq. 4.
+        target_ndr_path (string): path to NDR raster calculated by this func.
+
+    Returns:
+        None.
+
+    """
+    # calculate ic_0
+    ic_raster = gdal.OpenEx(ic_path, gdal.OF_RASTER)
+    ic_min, ic_max, _, _ = ic_raster.GetRasterBand(1).GetStatistics(0, 1)
+    ic_0 = (ic_max + ic_min) / 2.0
+
+    def ndr_op(downstream_ret_eff_array, ic_array):
+        """Calculate NDR from Eq. (4)."""
+        with numpy.errstate(invalid='raise'):
+            try:
+                result = numpy.empty_like(downstream_ret_eff_array)
+                result[:] = NODATA
+                valid_mask = (
+                    downstream_ret_eff_array != NODATA) & (
+                        ic_array != NODATA)
+                if numpy.count_nonzero(valid_mask) > 0:
+                    result[valid_mask] = (
+                        1 - downstream_ret_eff_array[valid_mask]) / (
+                            1 + numpy.exp(
+                                (ic_array[valid_mask] - ic_0) / k_val))
+                return result
+            except FloatingPointError:
+                LOGGER.debug(
+                    'bad values: %s %s %s', ic_array[valid_mask], ic_0,
+                    ic_path)
+                raise
+
+    pygeoprocessing.raster_calculator(
+        [(downstream_ret_eff_path, 1), (ic_path, 1)], ndr_op, target_ndr_path,
+        gdal.GDT_Float32, NODATA)
+
+
+def modified_load(
+        load_raster_path, runoff_proxy_path, target_modified_load_path):
+    """Calculate Modified load (eq 1).
+
+    Args:
+        load_raster_path (str): path to load raster.
+        runoff_proxy_path (str): path to runoff index.
+        target_modified_load_path (str): path to calculated modified load
+            raster.
+
+    Return:
+        None
+    """
+    load_raster_info = pygeoprocessing.get_raster_info(load_raster_path)
+    runoff_nodata = pygeoprocessing.get_raster_info(
+        runoff_proxy_path)['nodata'][0]
+    runoff_sum = 0.0
+    runoff_count = 0
+
+    for _, raster_block in pygeoprocessing.iterblocks(
+            (runoff_proxy_path, 1)):
+        # this complicated call ensures we don't end up with some garbage
+        # precipitation value like what we're getting with
+        # he26pr50.
+        valid_mask = (
+            ~numpy.isclose(raster_block, runoff_nodata) &
+            (raster_block >= 0) &
+            (raster_block < 1e7))
+        runoff_sum += numpy.sum(raster_block[valid_mask])
+        runoff_count += numpy.count_nonzero(raster_block)
+    avg_runoff = 1.0
+    if runoff_count > 0 and runoff_sum > 0:
+        avg_runoff = runoff_sum / runoff_count
+
+    load_nodata = load_raster_info['nodata'][0]
+    cell_area_ha = abs(
+        load_raster_info['pixel_size'][0] *
+        load_raster_info['pixel_size'][1]) * 0.0001
+
+    def _modified_load_op(load_array, runoff_array):
+        """Multiply arrays and divide by average runoff."""
+        result = numpy.empty(load_array.shape, dtype=numpy.float32)
+        result[:] = NODATA
+        valid_mask = (
+            ~numpy.isclose(load_array, load_nodata) &
+            ~numpy.isclose(runoff_array, runoff_nodata))
+        with warnings.catch_warnings():
+            warnings.filterwarnings('error')
+            try:
+                result[valid_mask] = (
+                    cell_area_ha * load_array[valid_mask] *
+                    runoff_array[valid_mask] / avg_runoff)
+                if any((result[valid_mask] > 1e25) |
+                       (result[valid_mask] < -1e25)):
+                    raise ValueError("bad result")
+            except Exception:
+                LOGGER.error(
+                    "warning or error in modified load %s %s %s %s %s %s",
+                    avg_runoff, cell_area_ha, runoff_array[valid_mask],
+                    result[valid_mask], load_raster_path, runoff_proxy_path)
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(load_raster_path, 1), (runoff_proxy_path, 1)], _modified_load_op,
+        target_modified_load_path, gdal.GDT_Float32, NODATA)
+
+
+def calculate_ag_load(
+        load_n_per_ha_raster_path, ag_load_raster_path, target_ag_load_path):
+    """Add the agricultural load onto the base load.
+
+    Args:
+        load_n_per_ha_raster_path (string): path to a base load raster with
+            `USE_AG_LOAD_ID` where the pixel should be replaced with the
+            managed ag load.
+        ag_load_raster_path (string): path to a raster that indicates
+            what the ag load is at `USE_AG_LOAD_ID` pixels
+        target_ag_load_path (string): generated raster that has the base
+            values from `load_n_per_ha_raster_path` but with the
+            USE_AG_LOAD_IDs replaced by `ag_load_raster_path`.
+
+    Return:
+        None
+    """
+    load_raster_info = pygeoprocessing.get_raster_info(
+        ag_load_raster_path)
+    load_nodata = load_raster_info['nodata'][0]
+
+    def ag_load_op(base_load_n_array, ag_load_array):
+        """Raster calculator replace USE_AG_LOAD_ID with ag loads."""
+        result = numpy.copy(base_load_n_array)
+        if load_nodata is not None:
+            nodata_load_mask = numpy.isclose(ag_load_array, load_nodata)
+        else:
+            nodata_load_mask = numpy.zeros(ag_load_array.shape, dtype=bool)
+        ag_mask = (base_load_n_array == USE_AG_LOAD_ID)
+        result[ag_mask & ~nodata_load_mask] = (
+            ag_load_array[ag_mask & ~nodata_load_mask])
+        result[ag_mask & nodata_load_mask] = 0.0
+        return result
+
+    nodata = pygeoprocessing.get_raster_info(
+        load_n_per_ha_raster_path)['nodata'][0]
+
+    pygeoprocessing.raster_calculator(
+        [(load_n_per_ha_raster_path, 1), (ag_load_raster_path, 1)],
+        ag_load_op, target_ag_load_path,
+        gdal.GDT_Float32, nodata)
+
+
+def calc_ic(d_up_array, d_dn_array):
+    """Calculate log_10(d_up/d_dn) unless nodata or 0."""
+    result = numpy.empty_like(d_up_array)
+    result[:] = NODATA
+    zero_mask = (d_dn_array == 0) | (d_up_array == 0)
+    valid_mask = (
+        ~numpy.isclose(d_up_array, NODATA) &
+        ~numpy.isclose(d_dn_array, NODATA) &
+        (d_up_array > 0) & (d_dn_array > 0) &
+        ~zero_mask)
+    result[valid_mask] = numpy.log10(
+        d_up_array[valid_mask] / d_dn_array[valid_mask])
+    result[zero_mask] = 0.0
+    return result
+
+
+def div_arrays(num_array, denom_array):
+    """Calculate num / denom except when denom = 0 or nodata."""
+    result = numpy.empty_like(num_array)
+    result[:] = NODATA
+    valid_mask = (
+        (num_array != NODATA) & (denom_array != NODATA) & (denom_array != 0))
+    result[valid_mask] = num_array[valid_mask] / denom_array[valid_mask]
+    return result
+
+
+def _mult_by_scalar_op(array, scalar, nodata, target_nodata):
+    """Multiply non-nodta values by self.scalar."""
+    result = numpy.empty_like(array)
+    result[:] = target_nodata
+    valid_mask = array != nodata
+    result[valid_mask] = array[valid_mask] * scalar
+    return result
+
+
+def mult_by_scalar_func(
+        raster_path, scalar, target_nodata, target_path):
+    """Multiply raster by scalar."""
+    nodata = pygeoprocessing.get_raster_info(raster_path)['nodata'][0]
+    pygeoprocessing.raster_calculator(
+        [(raster_path, 1), (scalar, 'raw'), (nodata, 'raw'),
+         (target_nodata, 'raw')], _mult_by_scalar_op, target_path,
+        gdal.GDT_Float32, target_nodata)
+
+
+def clamp_op(array, threshold_val, nodata):
+    """Clamp non-nodata in array to >= threshold_val."""
+    result = numpy.empty_like(array)
+    result[:] = array
+    threshold_mask = (array != nodata) & (array <= threshold_val)
+    result[threshold_mask] = threshold_val
+    return result
+
+
+def clamp_func(raster_path, threshold_val, target_path):
+    """Clamp values that exeed ``threshold val`` in ``raster_path```."""
+    nodata = pygeoprocessing.get_raster_info(raster_path)['nodata'][0]
+    pygeoprocessing.raster_calculator(
+        [(raster_path, 1), (threshold_val, 'raw'), (nodata, 'raw')],
+        clamp_op, target_path, gdal.GDT_Float32, nodata)
+
+
+def _d_up_op(
+        slope_accum_array, flow_accmulation_array, pixel_area,
+        flow_accum_nodata):
+    """Mult average upslope by sqrt of upslope area."""
+    result = numpy.empty_like(slope_accum_array)
+    result[:] = NODATA
+    valid_mask = flow_accmulation_array != flow_accum_nodata
+    result[valid_mask] = (
+        slope_accum_array[valid_mask] /
+        flow_accmulation_array[valid_mask]) * numpy.sqrt(
+            flow_accmulation_array[valid_mask] * pixel_area)
+    return result
+
+
+def d_up_op_func(
+        pixel_area, slope_accum_raster_path,
+        flow_accum_raster_path, target_d_up_raster_path):
+    """Calculate the DUp equation from NDR.
+
+    Args:
+        pixel_area (float): area of input raster pixel in m^2.
+        slope_accum_raster_path (string): path to slope accumulation
+            raster.
+        flow_accum_raster_path (string): path to flow accumulation raster.
+        target_d_up_raster_path (string): path to target d_up raster path
+            created by a call to __call__.
+    Return:
+        None
+    """
+    flow_accum_nodata = pygeoprocessing.get_raster_info(
+        flow_accum_raster_path)['nodata'][0]
+    pygeoprocessing.raster_calculator(
+        [(slope_accum_raster_path, 1),
+         (flow_accum_raster_path, 1), (pixel_area, 'raw'),
+         (flow_accum_nodata, 'raw')], _d_up_op,
+        target_d_up_raster_path, gdal.GDT_Float32, NODATA)
+
+
+def threshold_flow_accumulation(
+        flow_accum_path, flow_threshold, target_channel_path):
+    """Calculate channel raster by thresholding flow accumulation.
+
+    Args:
+        flow_accum_path (str): path to a single band flow accumulation raster.
+        flow_threshold (float): if the value in `flow_accum_path` is less
+            than or equal to this value, the pixel will be classified as a
+            channel.
+        target_channel_path (str): path to target raster that will contain
+            pixels set to 1 if they are a channel, 0 if not, and possibly
+            between 0 and 1 if a partial channel. (to be defined).
+
+    Return:
+        None
+    """
+    nodata = pygeoprocessing.get_raster_info(flow_accum_path)['nodata'][0]
+    channel_nodata = -1.0
+
+    def threshold_op(flow_val):
+        valid_mask = ~numpy.isclose(flow_val, nodata)
+        result = numpy.empty(flow_val.shape, dtype=numpy.float32)
+        result[:] = channel_nodata
+        result[valid_mask] = flow_val[valid_mask] >= flow_threshold
+        return result
+
+    pygeoprocessing.raster_calculator(
+        [(flow_accum_path, 1)], threshold_op, target_channel_path,
+        gdal.GDT_Float32, channel_nodata)
 
 
 def get_utm_code(lng, lat):
@@ -15,7 +338,7 @@ def get_utm_code(lng, lat):
 
     Args:
         lng (float): longitude coordinate.
-        lat (float): latittude coordinate.
+        lat (float): latitude coordinate.
 
     Return:
         An EPSG code representing the UTM zone containing the given
@@ -28,11 +351,17 @@ def get_utm_code(lng, lat):
     return epsg_code
 
 
-def ndr_watershed_processing(
+def ndr_plus(
         watershed_path, watershed_fid,
         target_cell_length_m,
+        retention_length_m,
+        k_val,
+        flow_threshold,
         routing_algorithm,
         dem_path,
+        lulc_path,
+        precip_path,
+        custom_load_path,
         eff_n_lucode_map,
         load_n_lucode_map,
         target_export_raster_path,
@@ -45,6 +374,8 @@ def ndr_watershed_processing(
         watershed_fid (str): watershed FID to run the analysis on.
         target_cell_length_m (float): length of target cell size to process
             in meters.
+        retention_length_m (float): NDR retention length in meters.
+        k_val (float): K parameter in NDR calculation.
         routing_algorithm (str): one of 'D8' or 'DINF' for D8 or D-infinity
             routing.
         dem_path (str): path to base DEM raster.
@@ -58,8 +389,8 @@ def ndr_watershed_processing(
         aligned_file_set (set): set of all output files generated by align
             and resize raster stack.
 
-    Returns:
-        None.
+    Return:
+        None
     """
     watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
     watershed_layer = watershed_vector.GetLayer()
@@ -69,454 +400,164 @@ def ndr_watershed_processing(
 
     watershed_dem_path = os.path.join(workspace_dir, 'watershed_dem.tif')
     watershed_geometry = watershed_feature.GetGeometryRef()
+    centroid_geom = watershed_geometry.Centroid()
+    utm_code = get_utm_code(centroid_geom.GetX(), centroid_geom.GetY())
+    utm_srs = osr.SpatialReference()
+    utm_srs.ImportFromEPSG(utm_code)
+
     # swizzle so it's xmin, ymin, xmax, ymax
     watershed_bb = [
         watershed_geometry.GetEnvelope()[i] for i in [0, 2, 1, 3]]
-
-    global_dem_info = pygeoprocessing.get_raster_info(dem_path)
-    LOGGER.info(
-        'warping {dem_path} to ')
-    pygeoprocessing.warp_raster(
-        dem_path, global_dem_info['pixel_size'],
-        watershed_dem_path, 'near',
-        target_bb=watershed_bb)
-
-    masked_watershed_dem_path = watershed_dem_path.replace(
-        '.tif', '_masked.tif')
-
-    centroid_geom = watershed_geometry.Centroid()
-    epsg_code = get_utm_code(centroid_geom.GetX(), centroid_geom.GetY())
-    epsg_srs = osr.SpatialReference()
-    epsg_srs.ImportFromEPSG(epsg_code)
-    pixel_area_in_km2 = target_cell_length_m ** 2 / 1.e3**2
+    target_bounding_box = pygeoprocessing.transform_bounding_box(
+        watershed_bb, watershed_layer.GetSpatialRef().ExportToWkt(),
+        utm_srs.ExportToWkt())
 
     watershed_geometry = None
     watershed_layer = None
     watershed_vector = None
 
-    local_watershed_path = os.path.join(ws_working_dir, '%s.gpkg' % ws_prefix)
+    global_dem_info = pygeoprocessing.get_raster_info(dem_path)
+    LOGGER.info(f'warping {dem_path} to {watershed_dem_path}')
 
-    reproject_watershed_task = task_graph.add_task(
-        func=reproject_geometry_to_target,
-        args=(
-            watershed_path, watershed_fid, epsg_srs.ExportToWkt(),
-            local_watershed_path),
-        target_path_list=[local_watershed_path],
-        task_name='project_watershed_%s' % ws_prefix)
+    pygeoprocessing.warp_raster(
+        dem_path, global_dem_info['pixel_size'],
+        watershed_dem_path, 'near',
+        target_bb=target_bounding_box,
+        vector_mask_options={
+            'mask_vector_path': watershed_path,
+            'mask_vector_where_filter': f'"fid"={watershed_fid}'
+        })
 
-    mask_watershed_dem_task = task_graph.add_task(
-        func=mask_raster_by_vector,
-        args=(
-            watershed_dem_path, local_watershed_path,
-            masked_watershed_dem_path),
-        target_path_list=[masked_watershed_dem_path],
-        dependent_task_list=[
-            reproject_watershed_task, create_watershed_dem_task],
-        task_name='mask dem %s' % ws_prefix)
-
-    base_raster_path_list = sorted(list(set(
-        [os.path.join(root_data_dir, path)
-         for (path, _) in list(LANDCOVER_RASTER_PATHS.values())] +
-        [os.path.join(root_data_dir, path)
-         for path in list(PRECIP_RASTER_PATHS.values()) +
-         list(AG_RASTER_PATHS.values()) +
-         list(POPULATION_RASTER_PATHS.values())])))
-    base_raster_path_list.extend(
-        [gpw_2010_total_dens_path, masked_watershed_dem_path])
-
-    max_basename_length = 40
-
-    def _base_to_aligned_path_op(base_path):
-        """Convert global raster path to local."""
-        return os.path.join(
-            ws_working_dir, '%s_%s_aligned.tif' % (
-                ws_prefix,
-                os.path.splitext(
-                    os.path.normpath(base_path).replace(
-                        os.sep, '_'))[0].replace(
-                    ws_prefix, '')[-max_basename_length:]))
-
+    base_raster_path_list = [
+        dem_path, lulc_path, precip_path, custom_load_path]
+    interpolation_mode_list = ['near', 'mode', 'near', 'near']
     aligned_path_list = [
-        _base_to_aligned_path_op(path) for path in base_raster_path_list]
-    aligned_dem_path = aligned_path_list[-1]
-    gpw_2010_den_aligned_path = aligned_path_list[-2]
-
-    wgs84_sr = osr.SpatialReference()
-    wgs84_sr.ImportFromEPSG(4326)
-    target_bounding_box = pygeoprocessing.transform_bounding_box(
-        watershed_bb, wgs84_sr.ExportToWkt(),
-        epsg_srs.ExportToWkt())
-
-    # clip dem, precip, & landcover to size of DEM? use 'mode'
-    # we know the input rasters are WGS84 unprojected
-
-    if any((x in aligned_file_set for x in aligned_path_list)):
-        raise ValueError(
-            "%s files might be duplicately processed", aligned_path_list)
-    aligned_file_set.update(aligned_path_list)
-
-    landcover_basename_set = set(
-        [os.path.basename(path)
-         for path, _ in LANDCOVER_RASTER_PATHS.values()])
-
-    interpolation_mode_list = []
-    for path in base_raster_path_list:
-        if os.path.basename(path) in landcover_basename_set:
-            interpolation_mode_list.append('mode')
-        else:
-            interpolation_mode_list.append('near')
-
-    align_resize_task = task_graph.add_task(
-        func=pygeoprocessing.align_and_resize_raster_stack,
-        args=(
-            base_raster_path_list, aligned_path_list,
-            interpolation_mode_list,
-            (UTM_PIXEL_SIZE, -UTM_PIXEL_SIZE),
-            target_bounding_box),
-        kwargs={'target_projection_wkt': epsg_srs.ExportToWkt()},
-        target_path_list=aligned_path_list,
-        dependent_task_list=[mask_watershed_dem_task],
-        task_name='align resize %s' % ws_prefix)
-
-    masked_gpw_2010_den_path = _base_to_aligned_path_op(
-        os.path.join(workspace_dir, 'masked_gpw_2010_den.tif'))
-    mask_gpw_2010_task = task_graph.add_task(
-        func=mask_raster_by_vector,
-        args=(
-            gpw_2010_den_aligned_path, local_watershed_path,
-            masked_gpw_2010_den_path),
-        target_path_list=[masked_gpw_2010_den_path],
-        dependent_task_list=[
-            reproject_watershed_task, align_resize_task],
-        task_name='mask gpw %s' % ws_prefix)
+        os.path.join(workspace_dir, os.path.basename(path))
+        for path in base_raster_path_list]
+    (aligned_dem_path, aligned_lulc_path, aligned_precip_path,
+     aligned_custom_load_path) = aligned_path_list
+    pygeoprocessing.align_and_resize_raster_stack(
+        base_raster_path_list, aligned_path_list,
+        interpolation_mode_list,
+        (target_cell_length_m, -target_cell_length_m),
+        target_bounding_box,
+        target_projection_wkt=utm_srs.ExportToWkt(),
+        vector_mask_options={
+            'mask_vector_path': watershed_path,
+            'mask_vector_where_filter': f'"fid"={watershed_fid}'
+        })
 
     # fill and route dem
-    filled_watershed_dem_path = os.path.join(
-        ws_working_dir, '%s_dem_filled.tif' % ws_prefix)
-    flow_dir_path = os.path.join(
-        ws_working_dir, '%s_flow_dir.tif' % ws_prefix)
+    filled_dem_path = os.path.join(workspace_dir, 'dem_filled.tif')
+    flow_dir_path = os.path.join(workspace_dir, 'flow_dir.tif')
 
-    fill_pits_task = task_graph.add_task(
-        func=pygeoprocessing.routing.fill_pits,
-        args=(
-            (aligned_dem_path, 1),
-            filled_watershed_dem_path),
-        kwargs={'working_dir': ws_working_dir},
-        target_path_list=[
-            filled_watershed_dem_path],
-        dependent_task_list=[align_resize_task],
-        task_name='fill pits %s' % ws_prefix)
+    pygeoprocessing.routing.fill_pits(
+        (aligned_dem_path, 1), filled_dem_path,
+        working_dir=workspace_dir)
 
-    flow_dir_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_d8,
-        args=(
-            (filled_watershed_dem_path, 1),
-            flow_dir_path),
-        kwargs={'working_dir': ws_working_dir},
-        target_path_list=[
-            flow_dir_path],
-        dependent_task_list=[fill_pits_task],
-        task_name='flow dir %s' % ws_prefix)
+    pygeoprocessing.routing.flow_dir_d8(
+        (filled_dem_path, 1), flow_dir_path,
+        working_dir=workspace_dir)
 
     # flow accum dem
     flow_accum_path = os.path.join(
-        ws_working_dir, '%s_flow_accum.tif' % ws_prefix)
-    flow_accum_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_d8,
-        args=(
-            (flow_dir_path, 1), flow_accum_path),
-        target_path_list=[flow_accum_path],
-        dependent_task_list=[flow_dir_task],
-        task_name='flow accmulation %s' % ws_prefix)
+        workspace_dir, 'flow_accum.tif')
+    pygeoprocessing.routing.flow_accumulation_d8(
+        (flow_dir_path, 1), flow_accum_path)
 
     # calculate slope
-    slope_raster_path = os.path.join(
-        ws_working_dir, '%s_slope.tif' % ws_prefix)
-    calculate_slope_task = task_graph.add_task(
-        func=pygeoprocessing.calculate_slope,
-        args=((filled_watershed_dem_path, 1), slope_raster_path),
-        target_path_list=[slope_raster_path],
-        dependent_task_list=[fill_pits_task],
-        task_name='calculate_slope_%s' % ws_prefix)
+    slope_raster_path = os.path.join(workspace_dir, 'slope.tif')
+    pygeoprocessing.calculate_slope(
+        (filled_dem_path, 1), slope_raster_path)
 
-    clamp_slope_raster_path = os.path.join(
-        ws_working_dir, '%s_clamp_slope.tif' % ws_prefix)
-    clamp_slope_task = task_graph.add_task(
-        func=clamp_func,
-        args=(slope_raster_path, 0.005, clamp_slope_raster_path),
-        target_path_list=[clamp_slope_raster_path],
-        dependent_task_list=[calculate_slope_task],
-        task_name='clamp_slope_%s' % ws_prefix)
+    clamp_slope_raster_path = os.path.join(workspace_dir, 'clamp_slope.tif')
+    clamp_func(slope_raster_path, 0.005, clamp_slope_raster_path)
 
     # calculate D_up
     slope_accum_watershed_dem_path = os.path.join(
-        ws_working_dir, '%s_s_accum.tif' % ws_prefix)
-    slope_accumulation_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_d8,
-        args=(
-            (flow_dir_path, 1), slope_accum_watershed_dem_path),
-        kwargs={
-            'weight_raster_path_band': (clamp_slope_raster_path, 1)},
-        target_path_list=[slope_accum_watershed_dem_path],
-        dependent_task_list=[flow_accum_task, clamp_slope_task],
-        task_name='slope_accumulation_%s' % ws_prefix)
+        workspace_dir, 's_accum.tif')
+    pygeoprocessing.routing.flow_accumulation_d8(
+        (flow_dir_path, 1), slope_accum_watershed_dem_path,
+        weight_raster_path_band=(clamp_slope_raster_path, 1))
 
-    d_up_raster_path = os.path.join(ws_working_dir, '%s_d_up.tif' % ws_prefix)
-    d_up_task = task_graph.add_task(
-        func=d_up_op_func,
-        args=(
-            UTM_PIXEL_SIZE**2, slope_accum_watershed_dem_path,
-            flow_accum_path, d_up_raster_path),
-        target_path_list=[d_up_raster_path],
-        dependent_task_list=[slope_accumulation_task, flow_accum_task],
-        task_name='d_up_%s' % ws_prefix)
+    d_up_raster_path = os.path.join(workspace_dir, 'd_up.tif')
+    d_up_op_func(
+        target_cell_length_m**2, slope_accum_watershed_dem_path,
+        flow_accum_path, d_up_raster_path)
 
     # calculate the flow channels
-    channel_path = os.path.join(ws_working_dir, '%s_channel.tif' % ws_prefix)
-    threshold_flow_task = task_graph.add_task(
-        func=threshold_flow_accumulation,
-        args=(
-            flow_accum_path, FLOW_THRESHOLD, channel_path),
-        target_path_list=[channel_path],
-        dependent_task_list=[flow_accum_task],
-        task_name='threshold flow accum %s' % ws_prefix)
+    channel_path = os.path.join(workspace_dir, 'channel.tif')
+    threshold_flow_accumulation(
+        flow_accum_path, flow_threshold, channel_path)
 
     # calculate flow path in pixels length down to stream
     pixel_flow_length_raster_path = os.path.join(
-        ws_working_dir, '%s_pixel_flow_length.tif' % ws_prefix)
-    downstream_flow_length_task = task_graph.add_task(
-        func=pygeoprocessing.routing.distance_to_channel_d8,
-        args=(
-            (flow_dir_path, 1), (channel_path, 1),
-            pixel_flow_length_raster_path),
-        target_path_list=[
-            pixel_flow_length_raster_path],
-        dependent_task_list=[fill_pits_task, threshold_flow_task],
-        task_name='downstream_pixel_flow_length_%s' % ws_prefix)
+        workspace_dir, 'pixel_flow_length.tif')
+    pygeoprocessing.routing.distance_to_channel_d8(
+        (flow_dir_path, 1), (channel_path, 1), pixel_flow_length_raster_path)
 
     # calculate real flow_path (flow length * pixel size)
     downstream_flow_distance_path = os.path.join(
-        ws_working_dir, '%s_m_flow_length.tif' % ws_prefix)
-    downstream_flow_distance_task = task_graph.add_task(
-        func=mult_by_scalar_func,
-        args=(
-            pixel_flow_length_raster_path, UTM_PIXEL_SIZE, NODATA,
-            downstream_flow_distance_path),
-        target_path_list=[downstream_flow_distance_path],
-        dependent_task_list=[downstream_flow_length_task],
-        task_name='downstream_m_flow_dist_%s' % ws_prefix)
+        workspace_dir, 'm_flow_length.tif')
+    mult_by_scalar_func(
+        pixel_flow_length_raster_path, target_cell_length_m, NODATA,
+        downstream_flow_distance_path)
 
     # calculate downstream distance / downstream slope
     d_dn_per_pixel_path = os.path.join(
-        ws_working_dir, '%s_d_dn_per_pixel.tif' % ws_prefix)
-    d_dn_per_pixel_task = task_graph.add_task(
-        func=pygeoprocessing.raster_calculator,
-        args=(
-            [(downstream_flow_distance_path, 1),
-             (clamp_slope_raster_path, 1)],
-            div_arrays, d_dn_per_pixel_path, gdal.GDT_Float32, NODATA),
-        target_path_list=[d_dn_per_pixel_path],
-        dependent_task_list=[
-            downstream_flow_distance_task, clamp_slope_task],
-        task_name='d_dn_per_pixel_%s' % ws_prefix)
+        workspace_dir, 'd_dn_per_pixel.tif')
+    pygeoprocessing.raster_calculator(
+        [(downstream_flow_distance_path, 1), (clamp_slope_raster_path, 1)],
+        div_arrays, d_dn_per_pixel_path, gdal.GDT_Float32, NODATA)
 
     # calculate D_dn: downstream sum of distance / downstream slope
     d_dn_raster_path = os.path.join(
-        ws_working_dir, '%s_d_dn.tif' % ws_prefix)
-    d_dn_task = task_graph.add_task(
-        func=pygeoprocessing.routing.distance_to_channel_d8,
-        args=(
-            (flow_dir_path, 1), (channel_path, 1), d_dn_raster_path),
-        kwargs={
-            'weight_raster_path_band': (d_dn_per_pixel_path, 1)
-            },
-        target_path_list=[d_dn_raster_path],
-        dependent_task_list=[
-            fill_pits_task, flow_accum_task, d_dn_per_pixel_task,
-            threshold_flow_task],
-        task_name='d_dn_%s' % ws_prefix)
+        workspace_dir, 'd_dn.tif')
+    pygeoprocessing.routing.distance_to_channel_d8(
+        (flow_dir_path, 1), (channel_path, 1), d_dn_raster_path,
+        weight_raster_path_band=(d_dn_per_pixel_path, 1))
 
     # calculate IC
-    ic_path = os.path.join(ws_working_dir, '%s_ic.tif' % ws_prefix)
-    ic_task = task_graph.add_task(
-        func=pygeoprocessing.raster_calculator,
-        args=(
-            [(d_up_raster_path, 1), (d_dn_raster_path, 1)],
-            calc_ic, ic_path, gdal.GDT_Float32, IC_NODATA),
-        target_path_list=[ic_path],
-        dependent_task_list=[d_up_task, d_dn_task],
-        task_name='ic_%s' % ws_prefix)
+    ic_path = os.path.join(workspace_dir, 'ic.tif')
+    pygeoprocessing.raster_calculator(
+        [(d_up_raster_path, 1), (d_dn_raster_path, 1)], calc_ic, ic_path,
+        gdal.GDT_Float32, NODATA)
 
-    for landcover_id, (global_landcover_path, global_landcover_nodata) in (
-            LANDCOVER_RASTER_PATHS.items()):
-        # calculate rural population
-        cur_or_fut_scenario = [
-            scenario for scenario in ('2015', 'ssp1', 'ssp3', 'ssp5')
-            if scenario in landcover_id]
-        LOGGER.info('%s %s', landcover_id, cur_or_fut_scenario)
-        if cur_or_fut_scenario:
-            scenario_id = cur_or_fut_scenario[0]
-            spatial_pop_2010_tot = _base_to_aligned_path_op(
-                os.path.join(
-                    root_data_dir, POPULATION_RASTER_PATHS['2015_tot']))
-            spatial_pop_scenario_rur = _base_to_aligned_path_op(
-                os.path.join(
-                    root_data_dir,
-                    POPULATION_RASTER_PATHS[f'{scenario_id}_rur']))
-            rural_scenario_pop_path = _base_to_aligned_path_op(
-                os.path.join(
-                    root_data_dir, f'{scenario_id}_rural_total_pop.tif'))
-            rural_pop_task = task_graph.add_task(
-                func=calculate_rural_pop,
-                args=(
-                    pixel_area_in_km2, masked_gpw_2010_den_path,
-                    spatial_pop_scenario_rur, spatial_pop_2010_tot,
-                    rural_scenario_pop_path),
-                target_path_list=[rural_scenario_pop_path],
-                dependent_task_list=[align_resize_task, mask_gpw_2010_task],
-                task_name='calculate rural pop')
-        else:
-            rural_scenario_pop_path = None
-            rural_pop_task = None
+    eff_n_raster_path = os.path.join(workspace_dir, 'eff_n.tif')
+    pygeoprocessing.reclassify_raster(
+        (aligned_lulc_path, 1), eff_n_lucode_map,
+        eff_n_raster_path, gdal.GDT_Float32, NODATA)
 
-        local_landcover_path = _base_to_aligned_path_op(
-            os.path.join(root_data_dir, global_landcover_path))
+    load_n_per_ha_raster_path = os.path.join(
+        workspace_dir, 'load_n_per_ha.tif')
+    pygeoprocessing.reclassify_raster(
+        (aligned_lulc_path, 1), load_n_lucode_map,
+        load_n_per_ha_raster_path, gdal.GDT_Float32, NODATA)
 
-        # mask local landcover
-        masked_local_landcover_path = local_landcover_path.replace(
-            '.tif', '_masked.tif')
+    ag_load_per_ha_path = os.path.join(workspace_dir, 'ag_load_n_per_ha.tif')
+    calculate_ag_load(
+        load_n_per_ha_raster_path, aligned_custom_load_path,
+        ag_load_per_ha_path)
 
-        mask_landcover_task = task_graph.add_task(
-            func=mask_raster_by_vector,
-            args=(
-                local_landcover_path, local_watershed_path,
-                masked_local_landcover_path),
-            kwargs={'target_nodata': global_landcover_nodata},
-            target_path_list=[masked_local_landcover_path],
-            dependent_task_list=[align_resize_task],
-            task_name='mask lulc %s %s' % (ws_prefix, landcover_id))
+    # calculate modified load (load * precip)
+    modified_load_raster_path = os.path.join(
+        workspace_dir, 'modified_load.tif')
+    modified_load(
+        ag_load_per_ha_path, aligned_precip_path,
+        modified_load_raster_path)
 
-        eff_n_raster_path = local_landcover_path.replace(
-            '.tif', '_eff_n.tif')
-        eff_n_lucode_map_nodata = eff_n_lucode_map.copy()
-        eff_n_lucode_map_nodata[global_landcover_nodata] = NODATA
-        reclassify_eff_n_task = task_graph.add_task(
-            func=pygeoprocessing.reclassify_raster,
-            args=(
-                (masked_local_landcover_path, 1), eff_n_lucode_map,
-                eff_n_raster_path, gdal.GDT_Float32, NODATA),
-            target_path_list=[eff_n_raster_path],
-            dependent_task_list=[align_resize_task, mask_landcover_task],
-            task_name='reclassify_eff_n_%s_%s' % (ws_prefix, landcover_id),
-            priority=task_id)
+    downstream_ret_eff_path = os.path.join(
+        workspace_dir, 'downstream_ret_eff.tif')
+    ndr_plus_cython.calculate_downstream_ret_eff(
+        (flow_dir_path, 1), (channel_path, 1), (eff_n_raster_path, 1),
+        retention_length_m, downstream_ret_eff_path,
+        temp_dir_path=workspace_dir)
 
-        load_n_lucode_map_copy = load_n_lucode_map.copy()
-        load_n_lucode_map_copy[global_landcover_nodata] = NODATA
-        load_n_per_ha_raster_path = local_landcover_path.replace(
-            '.tif', '_load_n_per_ha.tif')
-        reclassify_load_n_task = task_graph.add_task(
-            func=pygeoprocessing.reclassify_raster,
-            args=(
-                (masked_local_landcover_path, 1), load_n_lucode_map,
-                load_n_per_ha_raster_path, gdal.GDT_Float32, NODATA),
-            target_path_list=[load_n_per_ha_raster_path],
-            dependent_task_list=[align_resize_task, mask_landcover_task],
-            task_name='reclasify_load_n_%s_%s' % (ws_prefix, landcover_id),
-            priority=task_id)
+    # calculate NDR specific values
+    ndr_path = os.path.join(workspace_dir, 'ndr.tif')
+    calculate_ndr(downstream_ret_eff_path, ic_path, k_val, ndr_path)
 
-        local_ag_load_path = _base_to_aligned_path_op(
-            os.path.join(root_data_dir, AG_RASTER_PATHS[landcover_id]))
-
-        ag_load_per_ha_path = local_landcover_path.replace(
-            '.tif', '_ag_load_n_per_ha.tif')
-        scenario_load_task = task_graph.add_task(
-            func=calculate_ag_load,
-            args=(
-                load_n_per_ha_raster_path, local_ag_load_path,
-                ag_load_per_ha_path),
-            target_path_list=[ag_load_per_ha_path],
-            dependent_task_list=[
-                reclassify_load_n_task, align_resize_task],
-            task_name='scenario_load_%s_%s' % (ws_prefix, landcover_id),
-            priority=task_id)
-
-        # calculate modified load (load * precip)
-        modified_load_raster_path = local_landcover_path.replace(
-            '.tif', '_%s_modified_load.tif' % landcover_id)
-        local_precip_path = _base_to_aligned_path_op(
-            os.path.join(root_data_dir, PRECIP_RASTER_PATHS[landcover_id]))
-        modified_load_task = task_graph.add_task(
-            func=modified_load,
-            args=(
-                ag_load_per_ha_path, local_precip_path,
-                modified_load_raster_path),
-            target_path_list=[modified_load_raster_path],
-            dependent_task_list=[scenario_load_task, align_resize_task],
-            task_name='modified_load_%s_%s' % (ws_prefix, landcover_id),
-            priority=task_id)
-
-        local_precip_masked_path = local_precip_path.replace(
-            '.tif', '_masked.tif')
-        mask_precip_task = task_graph.add_task(
-            func=mask_raster_by_vector,
-            args=(
-                local_precip_path, local_watershed_path,
-                local_precip_masked_path),
-            target_path_list=[local_precip_masked_path],
-            dependent_task_list=[align_resize_task],
-            task_name='mask precip %s %s' % (ws_prefix, landcover_id))
-
-        # calculate eff_i
-        downstream_ret_eff_path = local_landcover_path.replace(
-            '.tif', '_downstream_ret_eff.tif')
-        downstream_ret_eff_task = task_graph.add_task(
-            func=ipbes_ndr_analysis_cython.calculate_downstream_ret_eff,
-            args=(
-                (flow_dir_path, 1), (channel_path, 1), (eff_n_raster_path, 1),
-                RET_LEN, downstream_ret_eff_path),
-            kwargs={'temp_dir_path': ws_working_dir},
-            target_path_list=[downstream_ret_eff_path],
-            dependent_task_list=[
-                flow_dir_task, flow_accum_task, reclassify_eff_n_task,
-                threshold_flow_task],
-            task_name='downstream_ret_eff_%s_%s' % (ws_prefix, landcover_id),
-            priority=task_id)
-
-        # calculate NDR specific values
-        ndr_path = local_landcover_path.replace(
-            '.tif', '_ndr.tif')
-        ndr_task = task_graph.add_task(
-            func=calculate_ndr,
-            args=(downstream_ret_eff_path, ic_path, K_VAL, ndr_path),
-            target_path_list=[ndr_path],
-            dependent_task_list=[downstream_ret_eff_task, ic_task],
-            task_name='ndr_task_%s_%s' % (ws_prefix, landcover_id),
-            priority=task_id)
-
-        n_export_raster_path = local_landcover_path.replace(
-            '.tif', '_%s_n_export.tif' % (landcover_id))
-        n_export_task = task_graph.add_task(
-            func=mult_arrays,
-            args=(
-                n_export_raster_path, gdal.GDT_Float32, NODATA,
-                [modified_load_raster_path, ndr_path]),
-            target_path_list=[n_export_raster_path],
-            dependent_task_list=[modified_load_task, ndr_task],
-            task_name='n_export_%s_%s' % (ws_prefix, landcover_id),
-            priority=task_id)
-
-        target_touch_path = local_landcover_path.replace(
-            '.tif', '_database_insert.txt')
-        aggregate_result_task = task_graph.add_task(
-            func=aggregate_to_database,
-            args=(
-                n_export_raster_path, modified_load_raster_path,
-                rural_scenario_pop_path, local_precip_masked_path,
-                load_n_per_ha_raster_path, ag_load_per_ha_path, ws_prefix,
-                landcover_id, database_lock, database_path,
-                target_touch_path),
-            dependent_task_list=[
-                n_export_task, modified_load_task, reproject_watershed_task] +
-                ([rural_pop_task] if rural_pop_task else []),
-            task_name='aggregate_result_%s_%s' % (ws_prefix, landcover_id),
-            priority=task_id)
+    n_export_raster_path = os.path.join(workspace_dir, 'n_export.tif')
+    mult_arrays(
+        n_export_raster_path, gdal.GDT_Float32, NODATA,
+        [modified_load_raster_path, ndr_path])
