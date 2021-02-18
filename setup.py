@@ -61,5 +61,13 @@ setup(
                 'src/inspring/floodplain_extraction'],
             language="c++",
         ),
+        Extension(
+            name="inspring.ndr_plus.ndr_plus",
+            sources=["src/inspring/ndr_plus/ndr_plus.pyx"],
+            include_dirs=[
+                numpy.get_include(),
+                'src/inspring/ndr_plus'],
+            language="c++",
+        ),
     ]
 )
