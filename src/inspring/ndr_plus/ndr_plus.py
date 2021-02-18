@@ -1,9 +1,36 @@
 """Primary script for NDR plus."""
+import logging
+import os
+
 from osgeo import gdal
+from osgeo import osr
+import pygeoprocessing
+import numpy
+
+LOGGER = logging.getLogger(__name__)
+
+
+def get_utm_code(lng, lat):
+    """Return the UTM zone code that contains the given coordinate.
+
+    Args:
+        lng (float): longitude coordinate.
+        lat (float): latittude coordinate.
+
+    Return:
+        An EPSG code representing the UTM zone containing the given
+        coordinate. This value is in a form that can be passed to
+        gdal's `ImportFromEPSG`.
+    """
+    utm_code = numpy.floor((lng + 180)/6) % 60 + 1
+    lat_code = 6 if lat > 0 else 7
+    epsg_code = int(f'32{lat_code:d}{utm_code:02d}')
+    return epsg_code
+
 
 def ndr_watershed_processing(
         watershed_path, watershed_fid,
-        target_cell_size,
+        target_cell_length_m,
         routing_algorithm,
         dem_path,
         eff_n_lucode_map,
@@ -16,7 +43,7 @@ def ndr_watershed_processing(
     Args:
         watershed_path (str): path to watershed vector
         watershed_fid (str): watershed FID to run the analysis on.
-        target_cell_length (float): length of target cell size to process
+        target_cell_length_m (float): length of target cell size to process
             in meters.
         routing_algorithm (str): one of 'D8' or 'DINF' for D8 or D-infinity
             routing.
@@ -37,44 +64,31 @@ def ndr_watershed_processing(
     watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
     watershed_layer = watershed_vector.GetLayer()
     watershed_feature = watershed_layer.GetFeature(watershed_fid)
-    watershed_fid = watershed_feature.GetFID()
 
-    # make a few subdirectories so we don't explode on number of files per
-    # directory. The largest watershed is 726k
-    last_digits = '%.4d' % watershed_fid
-    ws_working_dir = os.path.join(
-        workspace_dir, last_digits[-1], last_digits[-2],
-        last_digits[-3], last_digits[-4],
-        "%s_working_dir" % ws_prefix)
-    os.makedirs(ws_working_dir, exist_ok=True)
+    os.makedirs(workspace_dir, exist_ok=True)
 
-    watershed_dem_path = os.path.join(
-        ws_working_dir, '%s_dem.tif' % ws_prefix)
-
+    watershed_dem_path = os.path.join(workspace_dir, 'watershed_dem.tif')
     watershed_geometry = watershed_feature.GetGeometryRef()
+    # swizzle so it's xmin, ymin, xmax, ymax
     watershed_bb = [
         watershed_geometry.GetEnvelope()[i] for i in [0, 2, 1, 3]]
 
     global_dem_info = pygeoprocessing.get_raster_info(dem_path)
-    create_watershed_dem_task = task_graph.add_task(
-        func=pygeoprocessing.warp_raster,
-        args=(
-            dem_path, global_dem_info['pixel_size'],
-            watershed_dem_path, 'near'),
-        kwargs={'target_bb': watershed_bb},
-        target_path_list=[watershed_dem_path],
-        task_name='create_watershed_dem_%s' % ws_prefix)
+    LOGGER.info(
+        'warping {dem_path} to ')
+    pygeoprocessing.warp_raster(
+        dem_path, global_dem_info['pixel_size'],
+        watershed_dem_path, 'near',
+        target_bb=watershed_bb)
 
     masked_watershed_dem_path = watershed_dem_path.replace(
         '.tif', '_masked.tif')
 
     centroid_geom = watershed_geometry.Centroid()
-    utm_code = (math.floor((centroid_geom.GetX() + 180)/6) % 60) + 1
-    lat_code = 6 if centroid_geom.GetY() > 0 else 7
-    epsg_code = int('32%d%02d' % (lat_code, utm_code))
+    epsg_code = get_utm_code(centroid_geom.GetX(), centroid_geom.GetY())
     epsg_srs = osr.SpatialReference()
     epsg_srs.ImportFromEPSG(epsg_code)
-    pixel_area_in_km2 = UTM_PIXEL_SIZE ** 2 / 1.e3**2
+    pixel_area_in_km2 = target_cell_length_m ** 2 / 1.e3**2
 
     watershed_geometry = None
     watershed_layer = None
