@@ -25,7 +25,7 @@ ECOSHARD_DIR = os.path.join(WORKSPACE_DIR, 'ecoshards')
 # All links in this dict is an ecoshard that will be downloaded to
 # ECOSHARD_DIR
 
-ECOSHARD_PREFIX = 'https://storage.googlepais.com/'
+ECOSHARD_PREFIX = 'https://storage.googleapis.com/'
 DEM_ID = 'global_dem_3s_blake2b'
 
 ECOSHARDS = {
