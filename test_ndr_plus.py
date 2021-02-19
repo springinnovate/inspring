@@ -121,3 +121,6 @@ def main():
     #     target_modified_load_raster_path,
     #     workspace_dir)
 
+
+if __name__ == '__main__':
+    main()
