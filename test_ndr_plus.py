@@ -2,6 +2,7 @@
 import logging
 import multiprocessing
 import os
+import subprocess
 import sys
 import zipfile
 
@@ -65,12 +66,15 @@ def unzip_and_build_vrt(
         ``None``
     """
     os.makedirs(target_unzip_dir, exist_ok=True)
+    LOGGER.info(f'unzip {zipfile_path}')
     with zipfile.ZipFile(zipfile_path, 'r') as zip_ref:
-        zip_ref.extractall((
-)
+        zip_ref.extractall(target_unzip_dir)
 
     LOGGER.info('build vrt')
-    subprocess.run(f'gdalbuildvrt {target_vrt_path} {tiles_zip_path}/*.tif',)
+    subprocess.run(
+        f'gdalbuildvrt {target_vrt_path} {expected_tiles_zip_path}/*.tif')
+    LOGGER.info(f'all done building {target_vrt_path}')
+
 
 def main():
     """Entry point."""
@@ -91,28 +95,29 @@ def main():
     LOGGER.info('waiting for downloads to finish')
     task_graph.join()
 
-
     # global DEM that's used
     dem_tile_dir = os.path.join(ECOSHARD_DIR, 'global_dem_3s')
     dem_vrt_path = os.path.join(dem_tile_dir, 'global_dem_3s.vrt')
-    build_vrt(dem_tile_dir, dem_vrt_path)
+    unzip_and_build_vrt(
+        ecoshard_path_map[DEM_ID],
+        ECOSHARD_DIR,
+        dem_tile_dir,
+        dem_vrt_path)
 
-
-
-    ndr_plus(
-        watershed_path, watershed_fid,
-        target_cell_length_m,
-        retention_length_m,
-        k_val,
-        flow_threshold,
-        routing_algorithm,
-        dem_path,
-        lulc_path,
-        precip_path,
-        custom_load_path,
-        eff_n_lucode_map,
-        load_n_lucode_map,
-        target_export_raster_path,
-        target_modified_load_raster_path,
-        workspace_dir)
+    # ndr_plus(
+    #     watershed_path, watershed_fid,
+    #     target_cell_length_m,
+    #     retention_length_m,
+    #     k_val,
+    #     flow_threshold,
+    #     routing_algorithm,
+    #     dem_path,
+    #     lulc_path,
+    #     precip_path,
+    #     custom_load_path,
+    #     eff_n_lucode_map,
+    #     load_n_lucode_map,
+    #     target_export_raster_path,
+    #     target_modified_load_raster_path,
+    #     workspace_dir)
 
