@@ -27,9 +27,11 @@ ECOSHARD_DIR = os.path.join(WORKSPACE_DIR, 'ecoshards')
 
 ECOSHARD_PREFIX = 'https://storage.googleapis.com/'
 DEM_ID = 'global_dem_3s_blake2b'
+WATERSHED_ID = 'hydrosheds_15arcseconds'
 
 ECOSHARDS = {
     DEM_ID: f'{ECOSHARD_PREFIX}ipbes-ndr-ecoshard-data/global_dem_3s_blake2b_0532bf0a1bedbe5a98d1dc449a33ef0c.zip',
+    WATERSHED_ID: f'{ECOSHARD_PREFIX}ipbes-ndr-ecoshard-data/watersheds_globe_HydroSHEDS_15arcseconds_blake2b_14ac9c77d2076d51b0258fd94d9378d4.zip',
     'esacci-lc-l4-lccs-map-300m-p1y-2015-v2.0.7': f'{ECOSHARD_PREFIX}ipbes-ndr-ecoshard-data/ESACCI-LC-L4-LCCS-Map-300m-P1Y-2015-v2.0.7_md5_1254d25f937e6d9bdee5779d377c5aa4.tif',
     'extensification_bmps_irrigated': f'{ECOSHARD_PREFIX}nci-ecoshards/scenarios050420/extensification_bmps_irrigated_md5_7f5928ea3dcbcc55b0df1d47fbeec312.tif',
     'extensification_bmps_rainfed': f'{ECOSHARD_PREFIX}nci-ecoshards/scenarios050420/extensification_bmps_rainfed_md5_5350b6acebbff75bb71f27830098989f.tif',
@@ -49,7 +51,15 @@ ECOSHARDS = {
 }
 
 
-def unzip_and_build_vrt(
+def unzip(zipfile_path, target_unzip_dir):
+    """Unzip zip to target_dir."""
+    LOGGER.info(f'unzip {zipfile_path} to {target_unzip_dir}')
+    os.makedirs(target_unzip_dir, exist_ok=True)
+    with zipfile.ZipFile(zipfile_path, 'r') as zip_ref:
+        zip_ref.extractall(target_unzip_dir)
+
+
+def unzip_and_build_dem_vrt(
         zipfile_path, target_unzip_dir, expected_tiles_zip_path,
         target_vrt_path):
     """Build VRT of given tiles.
@@ -66,11 +76,7 @@ def unzip_and_build_vrt(
     Return:
         ``None``
     """
-    os.makedirs(target_unzip_dir, exist_ok=True)
-    LOGGER.info(f'unzip {zipfile_path}')
-    with zipfile.ZipFile(zipfile_path, 'r') as zip_ref:
-        zip_ref.extractall(target_unzip_dir)
-
+    unzip(zipfile_path, target_unzip_dir)
     LOGGER.info('build vrt')
     subprocess.run(
         f'gdalbuildvrt {target_vrt_path} {expected_tiles_zip_path}/*.tif',
@@ -102,11 +108,22 @@ def main():
     # global DEM that's used
     dem_tile_dir = os.path.join(ECOSHARD_DIR, 'global_dem_3s')
     dem_vrt_path = os.path.join(dem_tile_dir, 'global_dem_3s.vrt')
-    unzip_and_build_vrt(
-        ecoshard_path_map[DEM_ID],
-        ECOSHARD_DIR,
-        dem_tile_dir,
-        dem_vrt_path)
+    task_graph.add_task(
+        func=unzip_and_build_dem_vrt,
+        args=(
+            ecoshard_path_map[DEM_ID], ECOSHARD_DIR, dem_tile_dir,
+            dem_vrt_path),
+        target_path_lsit=[dem_vrt_path],
+        task_name='build DEM vrt')
+
+    task_graph.add_task(
+        func=unzip,
+        args=(ecoshard_path_map[WATERSHED_ID], ECOSHARD_DIR),
+        target_path_list=[],
+        task_name='unzip watersheds')
+
+    task_graph.join()
+    task_graph.close()
 
     # ndr_plus(
     #     watershed_path, watershed_fid,
