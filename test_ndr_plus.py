@@ -87,6 +87,7 @@ def main():
     for ecoshard_id, ecoshard_url in ECOSHARDS.items():
         ecoshard_path = os.path.join(
             ECOSHARD_DIR, os.path.basename(ecoshard_url))
+        LOGGER.debug(f'download {ecoshard_url}')
         download_task = task_graph.add_task(
             func=ecoshard.download_url,
             args=(ecoshard_url, ecoshard_path),
