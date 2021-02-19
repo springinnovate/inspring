@@ -116,10 +116,14 @@ def main():
         target_path_lsit=[dem_vrt_path],
         task_name='build DEM vrt')
 
+    expected_watershed_path = os.path.join(
+        ECOSHARD_DIR, 'watersheds_globe_HydroSHEDS_15arcseconds',
+        'af_bas_15s_beta.shp')
+
     task_graph.add_task(
         func=unzip,
         args=(ecoshard_path_map[WATERSHED_ID], ECOSHARD_DIR),
-        target_path_list=[],
+        target_path_list=[expected_watershed_path],
         task_name='unzip watersheds')
 
     task_graph.join()
