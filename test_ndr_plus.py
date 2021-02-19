@@ -113,7 +113,7 @@ def main():
         args=(
             ecoshard_path_map[DEM_ID], ECOSHARD_DIR, dem_tile_dir,
             dem_vrt_path),
-        target_path_lsit=[dem_vrt_path],
+        target_path_list=[dem_vrt_path],
         task_name='build DEM vrt')
 
     expected_watershed_path = os.path.join(
