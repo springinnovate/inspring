@@ -73,7 +73,8 @@ def unzip_and_build_vrt(
 
     LOGGER.info('build vrt')
     subprocess.run(
-        f'gdalbuildvrt {target_vrt_path} {expected_tiles_zip_path}/*.tif')
+        f'gdalbuildvrt {target_vrt_path} {expected_tiles_zip_path}/*.tif',
+        shell=True)
     LOGGER.info(f'all done building {target_vrt_path}')
 
 
