@@ -36,6 +36,11 @@ DEM_ID = 'global_dem_3s'
 DEM_TILE_DIR = os.path.join(ECOSHARD_DIR, 'global_dem_3s')
 DEM_VRT_PATH = os.path.join(DEM_TILE_DIR, 'global_dem_3s.vrt')
 
+BIOPHYSICAL_TABLE_IDS = {
+    'esa_aries_rs3': 'Value',
+    '', 'ID',
+}
+
 ECOSHARDS = {
     DEM_ID: f'{ECOSHARD_PREFIX}ipbes-ndr-ecoshard-data/global_dem_3s_blake2b_0532bf0a1bedbe5a98d1dc449a33ef0c.zip',
     WATERSHED_ID: f'{ECOSHARD_PREFIX}ipbes-ndr-ecoshard-data/watersheds_globe_HydroSHEDS_15arcseconds_blake2b_14ac9c77d2076d51b0258fd94d9378d4.zip',
@@ -181,7 +186,8 @@ def main():
     task_graph.close()
 
     eff_n_lucode_map, load_n_lucode_map = load_biophysical_table(
-        ecoshard_path_map['esa_aries_rs3'])
+        ecoshard_path_map['esa_aries_rs3'],
+        BIOPHYSICAL_TABLE_IDS['esa_aries_rs3'])
     workspace_dir = os.path.join(WORKSPACE_DIR, 'af_bas_15s_beta_0')
 
     watershed_path = expected_watershed_path
