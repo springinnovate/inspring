@@ -189,7 +189,7 @@ def main():
     eff_n_lucode_map, load_n_lucode_map = load_biophysical_table(
         ecoshard_path_map['esa_aries_rs3'],
         BIOPHYSICAL_TABLE_IDS['esa_aries_rs3'])
-    watershed_fid = 595
+    watershed_fid = 594
     workspace_dir = os.path.join(
         WORKSPACE_DIR, f'af_bas_15s_beta_{watershed_fid}')
 
