@@ -192,7 +192,7 @@ def main():
     workspace_dir = os.path.join(WORKSPACE_DIR, 'af_bas_15s_beta_0')
 
     watershed_path = expected_watershed_path
-    watershed_fid = 0
+    watershed_fid = 595
     target_cell_length_m = 300
     retention_length_m = 150
     k_val = 1.0
