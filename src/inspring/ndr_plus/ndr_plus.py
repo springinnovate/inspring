@@ -488,7 +488,7 @@ def ndr_plus(
         flow_accum_path, d_up_raster_path)
 
     # calculate the flow channels
-    channel_path = os.path.join(workspace_dir, 'channel.tif')
+    channel_path = os.path.join(workspace_dir, f'channel_{flow_threshold}.tif')
     threshold_flow_accumulation(
         flow_accum_path, flow_threshold, channel_path)
 
