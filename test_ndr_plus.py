@@ -194,7 +194,7 @@ def main():
         WORKSPACE_DIR, f'af_bas_15s_beta_{watershed_fid}')
 
     watershed_path = expected_watershed_path
-    target_cell_length_m = 300
+    target_cell_length_m = 90
     retention_length_m = 150
     k_val = 1.0
     flow_threshold = int(500**2*90 / target_cell_length_m**2)
