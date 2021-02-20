@@ -345,7 +345,7 @@ def get_utm_code(lng, lat):
         coordinate. This value is in a form that can be passed to
         gdal's `ImportFromEPSG`.
     """
-    utm_code = numpy.floor((lng + 180)/6) % 60 + 1
+    utm_code = int(numpy.floor((lng + 180)/6) % 60 + 1)
     lat_code = 6 if lat > 0 else 7
     epsg_code = int(f'32{lat_code:d}{utm_code:02d}')
     return epsg_code
