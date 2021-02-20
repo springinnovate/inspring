@@ -189,10 +189,11 @@ def main():
     eff_n_lucode_map, load_n_lucode_map = load_biophysical_table(
         ecoshard_path_map['esa_aries_rs3'],
         BIOPHYSICAL_TABLE_IDS['esa_aries_rs3'])
-    workspace_dir = os.path.join(WORKSPACE_DIR, 'af_bas_15s_beta_0')
+    watershed_fid = 595
+    workspace_dir = os.path.join(
+        WORKSPACE_DIR, f'af_bas_15s_beta_{watershed_fid}')
 
     watershed_path = expected_watershed_path
-    watershed_fid = 595
     target_cell_length_m = 300
     retention_length_m = 150
     k_val = 1.0
