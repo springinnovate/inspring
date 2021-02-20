@@ -319,7 +319,7 @@ def threshold_flow_accumulation(
         None
     """
     nodata = pygeoprocessing.get_raster_info(flow_accum_path)['nodata'][0]
-    channel_nodata = -1.0
+    channel_nodata = 2
 
     def threshold_op(flow_val):
         valid_mask = ~numpy.isclose(flow_val, nodata)
@@ -330,7 +330,7 @@ def threshold_flow_accumulation(
 
     pygeoprocessing.raster_calculator(
         [(flow_accum_path, 1)], threshold_op, target_channel_path,
-        gdal.GDT_Float32, channel_nodata)
+        gdal.GDT_Byte, channel_nodata)
 
 
 def get_utm_code(lng, lat):
