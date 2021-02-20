@@ -38,14 +38,14 @@ DEM_VRT_PATH = os.path.join(DEM_TILE_DIR, 'global_dem_3s.vrt')
 
 BIOPHYSICAL_TABLE_IDS = {
     'esa_aries_rs3': 'Value',
-    '', 'ID',
-}
+    'nci-ndr-biophysical_table_forestry_grazing': 'ID', }
 
 ECOSHARDS = {
     DEM_ID: f'{ECOSHARD_PREFIX}ipbes-ndr-ecoshard-data/global_dem_3s_blake2b_0532bf0a1bedbe5a98d1dc449a33ef0c.zip',
     WATERSHED_ID: f'{ECOSHARD_PREFIX}ipbes-ndr-ecoshard-data/watersheds_globe_HydroSHEDS_15arcseconds_blake2b_14ac9c77d2076d51b0258fd94d9378d4.zip',
     # Biophysical table:
     'esa_aries_rs3': f'{ECOSHARD_PREFIX}nci-ecoshards/nci-NDR-biophysical_table_ESA_ARIES_RS3_md5_74d69f7e7dc829c52518f46a5a655fb8.csv',
+    'nci-ndr-biophysical_table_forestry_grazing': f'{ECOSHARD_PREFIX}nci-ecoshards/nci-NDR-biophysical_table_forestry_grazing_md5_7524f2996fcc929ddc3aaccde249d59f.csv',
     # Precip:
     'worldclim_2015': f'{ECOSHARD_PREFIX}ipbes-ndr-ecoshard-data/worldclim_2015_md5_16356b3770460a390de7e761a27dbfa1.tif',
     # LULCs:
@@ -74,6 +74,7 @@ SCENARIOS = {
         'lulc_id': '',
         'precip_id': '',
         'fertilizer_id': '',
+        'biophysical_table_id': '',
     }
 }
 
