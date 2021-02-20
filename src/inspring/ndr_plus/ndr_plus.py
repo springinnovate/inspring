@@ -421,7 +421,7 @@ def ndr_plus(
     LOGGER.debug(f'base bb {watershed_bb} to taret {target_bounding_box}')
 
     pygeoprocessing.warp_raster(
-        dem_path, global_dem_info['pixel_size'],
+        dem_path, (target_cell_length_m, -target_cell_length_m),
         watershed_dem_path, 'near',
         target_bb=target_bounding_box,
         vector_mask_options={
