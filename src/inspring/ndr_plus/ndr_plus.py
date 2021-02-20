@@ -418,6 +418,7 @@ def ndr_plus(
 
     global_dem_info = pygeoprocessing.get_raster_info(dem_path)
     LOGGER.info(f'warping {dem_path} to {watershed_dem_path}')
+    LOGGER.debug(f'base bb {watershed_bb} to taret {target_bounding_box}')
 
     pygeoprocessing.warp_raster(
         dem_path, global_dem_info['pixel_size'],
@@ -436,6 +437,7 @@ def ndr_plus(
         for path in base_raster_path_list]
     (aligned_dem_path, aligned_lulc_path, aligned_precip_path,
      aligned_custom_load_path) = aligned_path_list
+    LOGGER.info(f'algining raster stack of {base_raster_path_list} to cell size {target_cell_length_m} and bounding box {target_bounding_box}')
     pygeoprocessing.align_and_resize_raster_stack(
         base_raster_path_list, aligned_path_list,
         interpolation_mode_list,
