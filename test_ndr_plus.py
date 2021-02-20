@@ -198,6 +198,7 @@ def main():
     retention_length_m = 150
     k_val = 1.0
     flow_threshold = int(500**2*90 / target_cell_length_m**2)
+    LOGGER.info(f'flow flow_threshold: {flow_threshold}')
     routing_algorithm = 'D8'
     dem_path = DEM_VRT_PATH
     lulc_path = ecoshard_path_map['esacci-lc-l4-lccs-map-300m-p1y-2015-v2.0.7']
