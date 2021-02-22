@@ -145,6 +145,14 @@ SCENARIOS = {
 }
 
 
+def create_empty_wgs84_raster(cell_size, target_path):
+    """Create an empty wgs84 raster to cover all the world."""
+    pass
+    # get driver
+    # figure out geotransform
+    # create raster
+
+
 def stitch_worker(
         stitch_export_raster_path, stitch_modified_load_raster_path,
         stitch_queue):
@@ -411,6 +419,7 @@ def main():
         stitch_queue.put(None)
     for stitch_worker_thread in stitch_worker_list:
         stitch_worker_thread.join()
+    # TODO: build overviews and compress
 
 
 if __name__ == '__main__':
