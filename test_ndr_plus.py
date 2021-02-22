@@ -23,7 +23,7 @@ logging.basicConfig(
     format=(
         '%(asctime)s (%(relativeCreated)d) %(processName)s %(levelname)s '
         '%(name)s [%(funcName)s:%(lineno)d] %(message)s'),
-    stream=sys.stdout)
+    filename='log.out')
 LOGGER = logging.getLogger(__name__)
 logging.getLogger('taskgraph').setLevel(logging.INFO)
 WORKSPACE_DIR = 'workspace'
@@ -436,7 +436,6 @@ def main():
                         local_workspace_dir,
                         stitch_queue),
                     task_name=f'{watershed_basename}_{watershed_fid}')
-                break
 
     task_graph.join()
     task_graph.close()
