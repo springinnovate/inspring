@@ -162,7 +162,7 @@ def create_empty_wgs84_raster(cell_size, nodata, target_path):
     target_band.SetNoDataValue(nodata)
     wgs84_srs = osr.SpatialReference()
     wgs84_srs.ImportFromEPSG(4326)
-    target_raster.SetProjection(wgs84_srs)
+    target_raster.SetProjection(wgs84_srs.ExportToWkt())
     target_raster.SetGeoTransform(
         [-180, cell_size, 0.0, 90.0, 0.0, -cell_size])
     target_raster = None
