@@ -370,7 +370,6 @@ def main():
         task_name='unzip watersheds')
 
     task_graph.join()
-    task_graph.close()
 
     manager = multiprocessing.Manager()
     stitch_worker_list = []
