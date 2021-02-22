@@ -1,15 +1,20 @@
 """Tracer for NDR watershed processing."""
+import glob
 import logging
 import multiprocessing
 import os
+import shutil
 import subprocess
 import sys
+import threading
 import urllib
 import zipfile
 
 from inspring.ndr_plus.ndr_plus import ndr_plus
+from osgeo import gdal
 import ecoshard
 import pandas
+import pygeoprocessing
 import taskgraph
 
 logging.basicConfig(
@@ -35,6 +40,13 @@ WATERSHED_ID = 'hydrosheds_15arcseconds'
 DEM_ID = 'global_dem_3s'
 DEM_TILE_DIR = os.path.join(ECOSHARD_DIR, 'global_dem_3s')
 DEM_VRT_PATH = os.path.join(DEM_TILE_DIR, 'global_dem_3s.vrt')
+
+# Global properties of the simulation
+RETENTION_LENGTH_M = 150
+K_VAL = 1.0
+TARGET_CELL_LENGTH_M = 300
+FLOW_THRESHOLD = int(500**2*90 / TARGET_CELL_LENGTH_M**2)
+ROUTING_ALGORITHM = 'D8'
 
 BIOPHYSICAL_TABLE_IDS = {
     'esa_aries_rs3': 'Value',
@@ -70,13 +82,164 @@ ECOSHARDS = {
 }
 
 SCENARIOS = {
-    'scenario_id': {
-        'lulc_id': '',
-        'precip_id': '',
-        'fertilizer_id': '',
-        'biophysical_table_id': '',
-    }
+    'extensification_bmps_irrigated': {
+        'lulc_id': 'extensification_bmps_irrigated',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'intensificationnapp_allcrops_irrigated_max_model_and_observednapprevb_bmps',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'extensification_bmps_rainfed': {
+        'lulc_id': 'extensification_bmps_rainfed',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'intensificationnapp_allcrops_rainfed_max_model_and_observednapprevb_bmps',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'extensification_current_practices': {
+        'lulc_id': 'extensification_current_practices',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'extensificationnapp_allcrops_rainfedfootprint_gapfilled_observednapprevb',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'extensification_intensified_irrigated': {
+        'lulc_id': 'extensification_intensified_irrigated',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'intensificationnapp_allcrops_irrigated_max_model_and_observednapprevb',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'extensification_intensified_rainfed': {
+        'lulc_id': 'extensification_intensified_rainfed',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'intensificationnapp_allcrops_rainfed_max_model_and_observednapprevb',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'fixedarea_currentpractices': {
+        'lulc_id': 'esacci-lc-l4-lccs-map-300m-p1y-2015-v2.0.7',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'extensificationnapp_allcrops_rainfedfootprint_gapfilled_observednapprevb',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'fixedarea_bmps_irrigated': {
+        'lulc_id': 'fixedarea_bmps_irrigated',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'intensificationnapp_allcrops_irrigated_max_model_and_observednapprevb_bmps',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'fixedarea_bmps_rainfed': {
+        'lulc_id': 'fixedarea_bmps_rainfed',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'intensificationnapp_allcrops_rainfed_max_model_and_observednapprevb_bmps',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'fixedarea_intensified_irrigated': {
+        'lulc_id': 'fixedarea_intensified_irrigated',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'intensificationnapp_allcrops_irrigated_max_model_and_observednapprevb',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
+    'fixedarea_intensified_rainfed': {
+        'lulc_id': 'fixedarea_intensified_rainfed',
+        'precip_id': 'worldclim_2015',
+        'fertilizer_id': 'intensificationnapp_allcrops_irrigated_max_model_and_observednapprevb',
+        'biophysical_table_id': 'biophysical_table_forestry_grazing',
+    },
 }
+
+
+def stitch_worker(
+        stitch_export_raster_path, stitch_modified_load_raster_path,
+        stitch_queue):
+    """Take elements from stitch queue and stitch into target."""
+    export_raster_list = []
+    modified_load_raster_list = []
+    workspace_list = []
+
+    while True:
+        payload = stitch_queue.get()
+        if payload is not None:
+            (export_raster_path, modified_load_raster_path,
+             workspace_dir) = payload
+
+            export_raster_list.append((export_raster_path, 1))
+            modified_load_raster_list.append((modified_load_raster_path, 1))
+            workspace_list.append(workspace_dir)
+
+        if len(workspace_list) < 100 and payload is not None:
+            continue
+
+        worker_list = []
+        for stitch_path, raster_list in [
+                (stitch_export_raster_path, export_raster_list),
+                (stitch_modified_load_raster_path,
+                 modified_load_raster_list)]:
+            export_worker = multiprocessing.Process(
+                target=pygeoprocessing.stitch_rasters,
+                args=(
+                    raster_list,
+                    ['near']*len(raster_list),
+                    stitch_path),
+                kwargs={
+                    'overlap_algorithm': 'add',
+                    'area_weight_m2_to_wgs84': True})
+            export_worker.start()
+            worker_list.append(export_worker)
+        for worker in worker_list:
+            worker.join()
+        for workspace_dir in workspace_list:
+            shutil.rmtree(workspace_dir)
+        export_raster_list = []
+        modified_load_raster_list = []
+        workspace_list = []
+        if payload is None:
+            break
+
+
+def ndr_plus_and_stitch(
+        watershed_path, watershed_fid,
+        target_cell_length_m,
+        retention_length_m,
+        k_val,
+        flow_threshold,
+        routing_algorithm,
+        dem_path,
+        lulc_path,
+        precip_path,
+        custom_load_path,
+        eff_n_lucode_map,
+        load_n_lucode_map,
+        target_export_raster_path,
+        target_modified_load_raster_path,
+        workspace_dir,
+        stitch_queue):
+    """Invoke ``inspring.ndr_plus`` with stitch.
+
+        Same parameter list as ``inspring.ndr_plus`` with additional args:
+
+        stitch_queue (queue): places export, load, and workspace path here to
+            stitch globally and delete the workspace when complete.
+
+        Return:
+            ``None``
+    """
+
+    ndr_plus(
+        watershed_path, watershed_fid,
+        target_cell_length_m,
+        retention_length_m,
+        k_val,
+        flow_threshold,
+        routing_algorithm,
+        dem_path,
+        lulc_path,
+        precip_path,
+        custom_load_path,
+        eff_n_lucode_map,
+        load_n_lucode_map,
+        target_export_raster_path,
+        target_modified_load_raster_path,
+        workspace_dir)
+    stitch_queue.put(
+        (target_export_raster_path, target_modified_load_raster_path,
+         workspace_dir))
 
 
 def load_biophysical_table(biophysical_table_path, lulc_field_id):
@@ -186,43 +349,64 @@ def main():
     task_graph.join()
     task_graph.close()
 
-    eff_n_lucode_map, load_n_lucode_map = load_biophysical_table(
-        ecoshard_path_map['esa_aries_rs3'],
-        BIOPHYSICAL_TABLE_IDS['esa_aries_rs3'])
-    watershed_fid = 594
-    workspace_dir = os.path.join(
-        WORKSPACE_DIR, f'af_bas_15s_beta_{watershed_fid}')
+    manager = multiprocessing.Manager()
+    stitch_worker_list = []
+    stitch_queue_list = []
+    for scenario_id, scenario_vars in SCENARIOS.items():
+        eff_n_lucode_map, load_n_lucode_map = load_biophysical_table(
+            ecoshard_path_map[scenario_vars['biophysical_table_id']],
+            BIOPHYSICAL_TABLE_IDS[scenario_vars['biophysical_table_id']])
 
-    watershed_path = expected_watershed_path
-    target_cell_length_m = 90
-    retention_length_m = 150
-    k_val = 1.0
-    flow_threshold = int(500**2*90 / target_cell_length_m**2)
-    LOGGER.info(f'flow flow_threshold: {flow_threshold}')
-    routing_algorithm = 'D8'
-    dem_path = DEM_VRT_PATH
-    lulc_path = ecoshard_path_map['esacci-lc-l4-lccs-map-300m-p1y-2015-v2.0.7']
-    precip_path = ecoshard_path_map['worldclim_2015']
-    custom_load_path = ecoshard_path_map['intensificationnapp_allcrops_irrigated_max_model_and_observednapprevb_bmps']
-    target_export_raster_path = os.path.join(workspace_dir, 'extensification_bmps_irrigated_export.tif')
-    target_modified_load_raster_path = os.path.join(workspace_dir, 'extensification_bmps_irrigated_modified_load.tif')
+        stitch_queue = manager.Queue()
+        stitch_queue_list.append(stitch_queue)
+        target_export_raster_path = os.path.join(
+            WORKSPACE_DIR, f'{scenario_id}_{TARGET_CELL_LENGTH_M:.1f}_{ROUTING_ALGORITHM}_export.tif')
+        target_modified_load_raster_path = os.path.join(
+            WORKSPACE_DIR, f'{scenario_id}_{TARGET_CELL_LENGTH_M:.1f}_{ROUTING_ALGORITHM}_modified_load.tif')
 
-    ndr_plus(
-        watershed_path, watershed_fid,
-        target_cell_length_m,
-        retention_length_m,
-        k_val,
-        flow_threshold,
-        routing_algorithm,
-        dem_path,
-        lulc_path,
-        precip_path,
-        custom_load_path,
-        eff_n_lucode_map,
-        load_n_lucode_map,
-        target_export_raster_path,
-        target_modified_load_raster_path,
-        workspace_dir)
+        stitch_worker_thread = threading.Thread(
+            target=stitch_worker,
+            args=(
+                target_export_raster_path, target_modified_load_raster_path,
+                stitch_queue))
+        stitch_worker_thread.start()
+        stitch_worker_list.append(stitch_worker_thread)
+
+        for watershed_path in glob.glob(os.path.join(watershed_dir, '*.shp')):
+            watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
+            watershed_layer = watershed_vector.GetLayer()
+            watershed_basename = os.path.splitext(os.path.basename(watershed_path))[0]
+            for watershed_feature in watershed_layer:
+                watershed_fid = watershed_feature.GetFID()
+                local_workspace_dir = os.path.join(
+                    WORKSPACE_DIR, f'{watershed_basename}_{watershed_fid}')
+                task_graph.add_task(
+                    func=ndr_plus_and_stitch,
+                    args=(
+                        watershed_path, watershed_fid,
+                        TARGET_CELL_LENGTH_M,
+                        RETENTION_LENGTH_M,
+                        K_VAL,
+                        FLOW_THRESHOLD,
+                        ROUTING_ALGORITHM,
+                        DEM_VRT_PATH,
+                        scenario_vars['lulc_id'],
+                        scenario_vars['precip_id'],
+                        scenario_vars['fertilizer_id'],
+                        eff_n_lucode_map,
+                        load_n_lucode_map,
+                        target_export_raster_path,
+                        target_modified_load_raster_path,
+                        local_workspace_dir,
+                        stitch_queue),
+                    task_name=f'{watershed_basename}_{watershed_fid}')
+
+    task_graph.join()
+    task_graph.close()
+    for stitch_queue in stitch_queue_list:
+        stitch_queue.put(None)
+    for stitch_worker_thread in stitch_worker_list:
+        stitch_worker_thread.join()
 
 
 if __name__ == '__main__':
