@@ -26,7 +26,6 @@ from libcpp.set cimport set as cset
 LOGGER = logging.getLogger(__name__)
 
 
-
 # This module expects rasters with a memory xy block size of 2**BLOCK_BITS
 cdef int BLOCK_BITS = 8
 NODATA = -1
