@@ -12,6 +12,7 @@ import zipfile
 
 from inspring.ndr_plus.ndr_plus import ndr_plus
 from osgeo import gdal
+from osgeo import osr
 import ecoshard
 import pandas
 import pygeoprocessing
@@ -47,6 +48,7 @@ K_VAL = 1.0
 TARGET_CELL_LENGTH_M = 300
 FLOW_THRESHOLD = int(500**2*90 / TARGET_CELL_LENGTH_M**2)
 ROUTING_ALGORITHM = 'D8'
+TARGET_WGS84_LENGTH_DEG = 10/3600
 
 BIOPHYSICAL_TABLE_IDS = {
     'esa_aries_rs3': 'Value',
@@ -145,12 +147,25 @@ SCENARIOS = {
 }
 
 
-def create_empty_wgs84_raster(cell_size, target_path):
+def create_empty_wgs84_raster(cell_size, nodata, target_path):
     """Create an empty wgs84 raster to cover all the world."""
-    pass
-    # get driver
-    # figure out geotransform
-    # create raster
+    n_cols = 360 // cell_size
+    n_rows = 180 // cell_size
+    gtiff_driver = gdal.GetDriverByName('GTIFF')
+    target_raster = gtiff_driver.Create(
+        target_path, n_cols, n_rows, 1, gdal.GDT_Float32,
+        options=(
+            'TILED=YES', 'BIGTIFF=YES', 'COMPRESS=LZW',
+            'BLOCKXSIZE=256', 'BLOCKYSIZE=256'))
+
+    target_band = target_raster.GetRasterBand(1)
+    target_band.SetNoDataValue(nodata)
+    wgs84_srs = osr.SpatialReference()
+    wgs84_srs.ImportFromEPSG(4326)
+    target_raster.SetProjection(wgs84_srs)
+    target_raster.SetGeoTransform(
+        [-180, cell_size, 0.0, 90.0, 0.0, -cell_size])
+    target_raster = None
 
 
 def stitch_worker(
@@ -360,6 +375,7 @@ def main():
     manager = multiprocessing.Manager()
     stitch_worker_list = []
     stitch_queue_list = []
+    target_raster_list = []
     for scenario_id, scenario_vars in SCENARIOS.items():
         eff_n_lucode_map, load_n_lucode_map = load_biophysical_table(
             ecoshard_path_map[scenario_vars['biophysical_table_id']],
@@ -371,6 +387,14 @@ def main():
             WORKSPACE_DIR, f'{scenario_id}_{TARGET_CELL_LENGTH_M:.1f}_{ROUTING_ALGORITHM}_export.tif')
         target_modified_load_raster_path = os.path.join(
             WORKSPACE_DIR, f'{scenario_id}_{TARGET_CELL_LENGTH_M:.1f}_{ROUTING_ALGORITHM}_modified_load.tif')
+
+        create_empty_wgs84_raster(
+            TARGET_WGS84_LENGTH_DEG, -1, target_export_raster_path)
+        create_empty_wgs84_raster(
+            TARGET_WGS84_LENGTH_DEG, -1, target_modified_load_raster_path)
+
+        target_raster_list.extend(
+            [target_export_raster_path, target_modified_load_raster_path])
 
         stitch_worker_thread = threading.Thread(
             target=stitch_worker,
@@ -412,6 +436,7 @@ def main():
                         local_workspace_dir,
                         stitch_queue),
                     task_name=f'{watershed_basename}_{watershed_fid}')
+                break
 
     task_graph.join()
     task_graph.close()
@@ -419,7 +444,26 @@ def main():
         stitch_queue.put(None)
     for stitch_worker_thread in stitch_worker_list:
         stitch_worker_thread.join()
+
     # TODO: build overviews and compress
+    build_overview_list = []
+    for target_raster in target_raster_list:
+        compress_raster_path = os.path.join(
+            WORKSPACE_DIR,
+            f'compress_overview_{os.path.basename(target_raster)}')
+        build_overview_process = multiprocessing.Process(
+            target=compress_and_overview,
+            args=(target_raster, compress_raster_path))
+        build_overview_process.start()
+        build_overview_list.append(build_overview_process)
+    for process in build_overview_list:
+        process.join()
+
+
+def compress_and_overview(base_raster_path, target_raster_path):
+    """Compress and overview base to raster."""
+    ecoshard.compress_raster(base_raster_path, target_raster_path)
+    ecoshard.build_overviews(target_raster_path)
 
 
 if __name__ == '__main__':
