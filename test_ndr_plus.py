@@ -380,6 +380,10 @@ def main():
                 watershed_fid = watershed_feature.GetFID()
                 local_workspace_dir = os.path.join(
                     WORKSPACE_DIR, f'{watershed_basename}_{watershed_fid}')
+                local_export_raster_path = os.path.join(
+                    local_workspace_dir, os.path.basename(target_export_raster_path))
+                local_modified_load_raster_path = os.path.join(
+                    local_workspace_dir, os.path.basename(target_modified_load_raster_path))
                 task_graph.add_task(
                     func=ndr_plus_and_stitch,
                     args=(
@@ -395,8 +399,8 @@ def main():
                         scenario_vars['fertilizer_id'],
                         eff_n_lucode_map,
                         load_n_lucode_map,
-                        target_export_raster_path,
-                        target_modified_load_raster_path,
+                        local_export_raster_path,
+                        local_modified_load_raster_path,
                         local_workspace_dir,
                         stitch_queue),
                     task_name=f'{watershed_basename}_{watershed_fid}')
