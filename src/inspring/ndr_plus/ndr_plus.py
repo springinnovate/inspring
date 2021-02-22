@@ -438,16 +438,21 @@ def ndr_plus(
     (aligned_dem_path, aligned_lulc_path, aligned_precip_path,
      aligned_custom_load_path) = aligned_path_list
     LOGGER.info(f'algining raster stack of {base_raster_path_list} to cell size {target_cell_length_m} and bounding box {target_bounding_box}')
-    pygeoprocessing.align_and_resize_raster_stack(
-        base_raster_path_list, aligned_path_list,
-        interpolation_mode_list,
-        (target_cell_length_m, -target_cell_length_m),
-        target_bounding_box,
-        target_projection_wkt=utm_srs.ExportToWkt(),
-        vector_mask_options={
-            'mask_vector_path': watershed_path,
-            'mask_vector_where_filter': f'"fid"={watershed_fid}'
-        })
+    try:
+        pygeoprocessing.align_and_resize_raster_stack(
+            base_raster_path_list, aligned_path_list,
+            interpolation_mode_list,
+            (target_cell_length_m, -target_cell_length_m),
+            target_bounding_box,
+            target_projection_wkt=utm_srs.ExportToWkt(),
+            vector_mask_options={
+                'mask_vector_path': watershed_path,
+                'mask_vector_where_filter': f'"fid"={watershed_fid}'
+            })
+    except ValueError:
+        LOGGER.exception(
+            f'base_raster_path_list: {base_raster_path_list}\naligned_path_list: {aligned_path_list}\nwatershed_path: {watershed_path} {watershed_fid}')
+        raise
 
     # fill and route dem
     filled_dem_path = os.path.join(workspace_dir, 'dem_filled.tif')
