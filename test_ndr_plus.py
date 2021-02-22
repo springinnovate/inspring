@@ -149,8 +149,8 @@ SCENARIOS = {
 
 def create_empty_wgs84_raster(cell_size, nodata, target_path):
     """Create an empty wgs84 raster to cover all the world."""
-    n_cols = 360 // cell_size
-    n_rows = 180 // cell_size
+    n_cols = int(360 // cell_size)
+    n_rows = int(180 // cell_size)
     gtiff_driver = gdal.GetDriverByName('GTIFF')
     target_raster = gtiff_driver.Create(
         target_path, n_cols, n_rows, 1, gdal.GDT_Float32,
