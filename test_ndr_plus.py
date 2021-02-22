@@ -410,7 +410,8 @@ def main():
             for watershed_feature in watershed_layer:
                 watershed_fid = watershed_feature.GetFID()
                 local_workspace_dir = os.path.join(
-                    WORKSPACE_DIR, f'{watershed_basename}_{watershed_fid}')
+                    WORKSPACE_DIR, scenario_id,
+                    f'{watershed_basename}_{watershed_fid}')
                 local_export_raster_path = os.path.join(
                     local_workspace_dir, os.path.basename(target_export_raster_path))
                 local_modified_load_raster_path = os.path.join(
