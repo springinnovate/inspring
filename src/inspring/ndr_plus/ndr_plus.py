@@ -416,7 +416,6 @@ def ndr_plus(
     watershed_layer = None
     watershed_vector = None
 
-    global_dem_info = pygeoprocessing.get_raster_info(dem_path)
     LOGGER.info(f'warping {dem_path} to {watershed_dem_path}')
     LOGGER.debug(f'base bb {watershed_bb} to taret {target_bounding_box}')
 
@@ -449,7 +448,7 @@ def ndr_plus(
                 'mask_vector_path': watershed_path,
                 'mask_vector_where_filter': f'"fid"={watershed_fid}'
             })
-    except ValueError:
+    except:
         LOGGER.exception(
             f'base_raster_path_list: {base_raster_path_list}\naligned_path_list: {aligned_path_list}\nwatershed_path: {watershed_path} {watershed_fid}')
         raise
