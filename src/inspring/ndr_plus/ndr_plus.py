@@ -436,7 +436,8 @@ def ndr_plus(
         for path in base_raster_path_list]
     (aligned_dem_path, aligned_lulc_path, aligned_precip_path,
      aligned_custom_load_path) = aligned_path_list
-    LOGGER.info(f'algining raster stack of {base_raster_path_list} to cell size {target_cell_length_m} and bounding box {target_bounding_box}')
+    LOGGER.info(f'algining raster stack of {base_raster_path_list} to cell size {target_cell_length_m} and bounding box {target_bounding_box}'
+        f'\nwatershed_path: {watershed_path} {watershed_fid}')
     try:
         pygeoprocessing.align_and_resize_raster_stack(
             base_raster_path_list, aligned_path_list,
