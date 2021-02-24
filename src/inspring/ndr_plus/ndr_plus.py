@@ -441,7 +441,7 @@ def ndr_plus(
             })
     except:
         LOGGER.exception(
-            f'base_raster_path_list: {base_raster_path_list}\naligned_path_list: {aligned_path_list}\nwatershed_path: {watershed_path} {watershed_fid}')
+            f'base_raster_path_list: {base_raster_path_list}\naligned_path_list: {aligned_path_list}\nwatershed_path: {watershed_path} {watershed_fid}\ntarget bounding box: {target_bounding_box}\nbase bounding box {watershed_bb}')
         raise
 
     # fill and route dem
