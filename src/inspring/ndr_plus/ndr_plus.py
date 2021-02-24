@@ -398,7 +398,6 @@ def ndr_plus(
 
     os.makedirs(workspace_dir, exist_ok=True)
 
-    watershed_dem_path = os.path.join(workspace_dir, 'watershed_dem.tif')
     watershed_geometry = watershed_feature.GetGeometryRef()
     centroid_geom = watershed_geometry.Centroid()
     utm_code = get_utm_code(centroid_geom.GetX(), centroid_geom.GetY())
@@ -416,17 +415,7 @@ def ndr_plus(
     watershed_layer = None
     watershed_vector = None
 
-    LOGGER.info(f'warping {dem_path} to {watershed_dem_path}')
     LOGGER.debug(f'base bb {watershed_bb} to taret {target_bounding_box}')
-
-    pygeoprocessing.warp_raster(
-        dem_path, (target_cell_length_m, -target_cell_length_m),
-        watershed_dem_path, 'near',
-        target_bb=target_bounding_box,
-        vector_mask_options={
-            'mask_vector_path': watershed_path,
-            'mask_vector_where_filter': f'"fid"={watershed_fid}'
-        })
 
     base_raster_path_list = [
         dem_path, lulc_path, precip_path, custom_load_path]
