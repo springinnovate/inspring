@@ -54,7 +54,7 @@ TARGET_CELL_LENGTH_M = 300
 FLOW_THRESHOLD = int(500**2*90 / TARGET_CELL_LENGTH_M**2)
 ROUTING_ALGORITHM = 'D8'
 TARGET_WGS84_LENGTH_DEG = 10/3600
-AREA_DEG_THRESHOLD = 0.000016 * 4  # this is 4 times larger than hydrosheds 1 "pixel" watersheds
+AREA_DEG_THRESHOLD = 0.000016 * 10  # this is 10 times larger than hydrosheds 1 "pixel" watersheds
 
 BIOPHYSICAL_TABLE_IDS = {
     'esa_aries_rs3': 'Value',
