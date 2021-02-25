@@ -208,13 +208,13 @@ def stitch_worker(
                     overlap_algorithm='add',
                     area_weight_m2_to_wgs84=True)
             for workspace_dir in workspace_list:
-                LOGGER.debug(f'stitch on {stitch_export_raster_path}, {stitch_modified_load_raster_paths} complete, removing {workspace_dir}')
-                #shutil.rmtree(workspace_dir)
+                LOGGER.debug(f'stitch on {stitch_export_raster_path}, {stitch_modified_load_raster_path} complete, removing {workspace_dir}')
+                shutil.rmtree(workspace_dir)
             export_raster_list = []
             modified_load_raster_list = []
             workspace_list = []
             if payload is None:
-                LOGGER.info(f'all done stitching  {stitch_export_raster_path}, {stitch_modified_load_raster_paths} -- exiting')
+                LOGGER.info(f'all done stitching  {stitch_export_raster_path}, {stitch_modified_load_raster_path} -- exiting')
                 break
     except:
         LOGGER.exception(
