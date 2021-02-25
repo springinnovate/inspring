@@ -26,6 +26,7 @@ logging.basicConfig(
     filename='log.out')
 LOGGER = logging.getLogger(__name__)
 logging.getLogger('taskgraph').setLevel(logging.INFO)
+logging.getLogger('pygeoprocessing').setLevel(logging.WARNING)
 WORKSPACE_DIR = 'workspace'
 ECOSHARD_DIR = os.path.join(WORKSPACE_DIR, 'ecoshards')
 
@@ -266,6 +267,7 @@ def ndr_plus_and_stitch(
         stitch_queue.put(
             (target_export_raster_path, target_modified_load_raster_path,
              workspace_dir))
+        LOGGER.debug(f'done ndr_plus on {watershed_path} {watershed_fid} to {target_export_raster_path}')
     except:
         LOGGER.exception(
             f'this exception happened on {watershed_path} {watershed_fid} but skipping with no problem')
