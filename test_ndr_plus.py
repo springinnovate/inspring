@@ -175,51 +175,47 @@ def stitch_worker(
         stitch_export_raster_path, stitch_modified_load_raster_path,
         stitch_queue):
     """Take elements from stitch queue and stitch into target."""
-    export_raster_list = []
-    modified_load_raster_list = []
-    workspace_list = []
-
-    while True:
-        payload = stitch_queue.get()
-        if payload is not None:
-            (export_raster_path, modified_load_raster_path,
-             workspace_dir) = payload
-
-            export_raster_list.append((export_raster_path, 1))
-            modified_load_raster_list.append((modified_load_raster_path, 1))
-            workspace_list.append(workspace_dir)
-
-        if len(workspace_list) < 100 and payload is not None:
-            continue
-
-        worker_list = []
-        for stitch_path, raster_list in [
-                (stitch_export_raster_path, export_raster_list),
-                (stitch_modified_load_raster_path,
-                 modified_load_raster_list)]:
-            LOGGER.debug(f'about to stitch {len(raster_list)} rasters into {stitch_path}')
-            export_worker = multiprocessing.Process(
-                target=pygeoprocessing.stitch_rasters,
-                args=(
-                    raster_list,
-                    ['near']*len(raster_list),
-                    stitch_path),
-                kwargs={
-                    'overlap_algorithm': 'add',
-                    'area_weight_m2_to_wgs84': True})
-            export_worker.start()
-            worker_list.append(export_worker)
-        LOGGER.debug(f'waiting for stitch to finish')
-        for worker in worker_list:
-            worker.join()
-        for workspace_dir in workspace_list:
-            LOGGER.debug(f'stitch on {stitch_export_raster_path}, {stitch_modified_load_raster_paths} complete, removing {workspace_dir}')
-            shutil.rmtree(workspace_dir)
+    try:
         export_raster_list = []
         modified_load_raster_list = []
         workspace_list = []
-        if payload is None:
-            break
+
+        while True:
+            payload = stitch_queue.get()
+            if payload is not None:
+                (export_raster_path, modified_load_raster_path,
+                 workspace_dir) = payload
+
+                export_raster_list.append((export_raster_path, 1))
+                modified_load_raster_list.append((modified_load_raster_path, 1))
+                workspace_list.append(workspace_dir)
+
+            if len(workspace_list) < 100 and payload is not None:
+                continue
+
+            for stitch_path, raster_list in [
+                    (stitch_export_raster_path, export_raster_list),
+                    (stitch_modified_load_raster_path,
+                     modified_load_raster_list)]:
+                LOGGER.debug(f'about to stitch {len(raster_list)} rasters into {stitch_path}')
+                pygeoprocessing.stitch_rasters(
+                    raster_list,
+                    ['near']*len(raster_list),
+                    stitch_path,
+                    overlap_algorithm='add',
+                    area_weight_m2_to_wgs84=True)
+            for workspace_dir in workspace_list:
+                LOGGER.debug(f'stitch on {stitch_export_raster_path}, {stitch_modified_load_raster_paths} complete, removing {workspace_dir}')
+                shutil.rmtree(workspace_dir)
+            export_raster_list = []
+            modified_load_raster_list = []
+            workspace_list = []
+            if payload is None:
+                break
+    except:
+        LOGGER.exception(
+            f'something bad happened in stitch worker for {stitch_export_raster_path}, {stitch_modified_load_raster_path}')
+        raise
 
 
 def ndr_plus_and_stitch(
