@@ -194,6 +194,7 @@ def stitch_worker(
                 (stitch_export_raster_path, export_raster_list),
                 (stitch_modified_load_raster_path,
                  modified_load_raster_list)]:
+            LOGGER.debug(f'about to stitch {len(raster_list)} rasters into {stitch_path}')
             export_worker = multiprocessing.Process(
                 target=pygeoprocessing.stitch_rasters,
                 args=(
@@ -205,9 +206,11 @@ def stitch_worker(
                     'area_weight_m2_to_wgs84': True})
             export_worker.start()
             worker_list.append(export_worker)
+        LOGGER.debug(f'waiting for stitch to finish')
         for worker in worker_list:
             worker.join()
         for workspace_dir in workspace_list:
+            LOGGER.debug(f'stitch on {stitch_export_raster_path}, {stitch_modified_load_raster_paths} complete, removing {workspace_dir}')
             shutil.rmtree(workspace_dir)
         export_raster_list = []
         modified_load_raster_list = []
