@@ -536,12 +536,9 @@ def ndr_plus(
         load_n_per_ha_raster_path, aligned_custom_load_path,
         ag_load_per_ha_path)
 
-    # calculate modified load (load * precip)
-    modified_load_raster_path = os.path.join(
-        workspace_dir, 'modified_load.tif')
     modified_load(
         ag_load_per_ha_path, aligned_precip_path,
-        modified_load_raster_path)
+        target_modified_load_raster_path)
 
     downstream_ret_eff_path = os.path.join(
         workspace_dir, 'downstream_ret_eff.tif')
@@ -554,7 +551,6 @@ def ndr_plus(
     ndr_path = os.path.join(workspace_dir, 'ndr.tif')
     calculate_ndr(downstream_ret_eff_path, ic_path, k_val, ndr_path)
 
-    n_export_raster_path = os.path.join(workspace_dir, 'n_export.tif')
     mult_arrays(
-        n_export_raster_path, gdal.GDT_Float32, NODATA,
-        [modified_load_raster_path, ndr_path])
+        target_export_raster_path, gdal.GDT_Float32, NODATA,
+        [target_modified_load_raster_path, ndr_path])
