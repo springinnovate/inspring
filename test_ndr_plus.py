@@ -27,6 +27,7 @@ logging.basicConfig(
 LOGGER = logging.getLogger(__name__)
 logging.getLogger('taskgraph').setLevel(logging.INFO)
 logging.getLogger('pygeoprocessing').setLevel(logging.WARNING)
+logging.getLogger('inspring.ndr_plus.ndr_plus').setLevel(logging.WARNING)
 WORKSPACE_DIR = 'workspace'
 ECOSHARD_DIR = os.path.join(WORKSPACE_DIR, 'ecoshards')
 
