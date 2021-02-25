@@ -50,6 +50,7 @@ TARGET_CELL_LENGTH_M = 300
 FLOW_THRESHOLD = int(500**2*90 / TARGET_CELL_LENGTH_M**2)
 ROUTING_ALGORITHM = 'D8'
 TARGET_WGS84_LENGTH_DEG = 10/3600
+AREA_DEG_THRESHOLD = 0.000016 * 4  # this is 4 times larger than hydrosheds 1 "pixel" watersheds
 
 BIOPHYSICAL_TABLE_IDS = {
     'esa_aries_rs3': 'Value',
@@ -417,6 +418,8 @@ def main():
             watershed_basename = os.path.splitext(os.path.basename(watershed_path))[0]
             n_features = 0
             for watershed_feature in watershed_layer:
+                if watershed_feature.GetGeometryRef().Area() < AREA_DEG_THRESHOLD:
+                    continue
                 n_features += 1
                 if n_features == 50:
                     break
