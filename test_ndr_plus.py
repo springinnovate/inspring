@@ -417,13 +417,9 @@ def main():
             watershed_vector = gdal.OpenEx(watershed_path, gdal.OF_VECTOR)
             watershed_layer = watershed_vector.GetLayer()
             watershed_basename = os.path.splitext(os.path.basename(watershed_path))[0]
-            n_features = 0
             for watershed_feature in watershed_layer:
                 if watershed_feature.GetGeometryRef().Area() < AREA_DEG_THRESHOLD:
                     continue
-                n_features += 1
-                if n_features == 2:
-                    break
                 watershed_fid = watershed_feature.GetFID()
                 local_workspace_dir = os.path.join(
                     WORKSPACE_DIR, scenario_id,
