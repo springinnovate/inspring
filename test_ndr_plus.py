@@ -422,7 +422,7 @@ def main():
                 if watershed_feature.GetGeometryRef().Area() < AREA_DEG_THRESHOLD:
                     continue
                 n_features += 1
-                if n_features == 50:
+                if n_features == 2:
                     break
                 watershed_fid = watershed_feature.GetFID()
                 local_workspace_dir = os.path.join(
