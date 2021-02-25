@@ -211,6 +211,7 @@ def stitch_worker(
             modified_load_raster_list = []
             workspace_list = []
             if payload is None:
+                LOGGER.info(f'all done stitching  {stitch_export_raster_path}, {stitch_modified_load_raster_paths} -- exiting')
                 break
     except:
         LOGGER.exception(
