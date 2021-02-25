@@ -204,7 +204,7 @@ def stitch_worker(
                 pygeoprocessing.stitch_rasters(
                     raster_list,
                     ['near']*len(raster_list),
-                    stitch_path,
+                    (stitch_path, 1),
                     overlap_algorithm='add',
                     area_weight_m2_to_wgs84=True)
             for workspace_dir in workspace_list:
