@@ -1,11 +1,11 @@
 """Tracer for NDR watershed processing."""
+import argparse
 import glob
 import logging
 import multiprocessing
 import os
 import shutil
 import subprocess
-import sys
 import threading
 import urllib
 import zipfile
@@ -176,7 +176,7 @@ def create_empty_wgs84_raster(cell_size, nodata, target_path):
 
 def stitch_worker(
         stitch_export_raster_path, stitch_modified_load_raster_path,
-        stitch_queue):
+        stitch_queue, keep_watershed_workspaces):
     """Take elements from stitch queue and stitch into target."""
     try:
         export_raster_list = []
@@ -207,9 +207,13 @@ def stitch_worker(
                     (stitch_path, 1),
                     overlap_algorithm='add',
                     area_weight_m2_to_wgs84=True)
-            for workspace_dir in workspace_list:
-                LOGGER.debug(f'stitch on {stitch_export_raster_path}, {stitch_modified_load_raster_path} complete, removing {workspace_dir}')
-                shutil.rmtree(workspace_dir)
+            if not keep_watershed_workspaces:
+                for workspace_dir in workspace_list:
+                    LOGGER.debug(f'stitch on {stitch_export_raster_path}, {stitch_modified_load_raster_path} complete, removing {workspace_dir}')
+                    shutil.rmtree(workspace_dir)
+            else:
+                LOGGER.debug(
+                    f'finished stitching {len(workspace_list)} rasters in {stitch_export_raster_path}')
             export_raster_list = []
             modified_load_raster_list = []
             workspace_list = []
@@ -340,6 +344,19 @@ def unzip_and_build_dem_vrt(
 
 def main():
     """Entry point."""
+    parser = argparse.ArgumentParser(description='NDR+')
+    parser.add_argument(
+        '--watershed_ids', nargs='+',
+        help='if present only run on this watershed id')
+    parser.add_argument(
+        '--keep_watershed_workspaces', action='store_true',
+        help='use this flag to delete the workspace after stitching')
+    args = parser.parse_args()
+
+    limited_watershed_set = {
+        watershed_id.split(',') for watershed_id in args.watershed_ids
+    }
+
     os.makedirs(WORKSPACE_DIR, exist_ok=True)
     task_graph = taskgraph.TaskGraph(
         WORKSPACE_DIR, multiprocessing.cpu_count())
@@ -409,7 +426,7 @@ def main():
             target=stitch_worker,
             args=(
                 target_export_raster_path, target_modified_load_raster_path,
-                stitch_queue))
+                stitch_queue, args.keep_watershed_workspaces))
         stitch_worker_thread.start()
         stitch_worker_list.append(stitch_worker_thread)
 
@@ -418,9 +435,16 @@ def main():
             watershed_layer = watershed_vector.GetLayer()
             watershed_basename = os.path.splitext(os.path.basename(watershed_path))[0]
             for watershed_feature in watershed_layer:
+                watershed_fid = watershed_feature.GetFID()
+
+                # check to see if this should be skipped
+                if limited_watershed_set:
+                    if ((watershed_basename, watershed_fid)
+                            not in limited_watershed_set):
+                        continue
+
                 if watershed_feature.GetGeometryRef().Area() < AREA_DEG_THRESHOLD:
                     continue
-                watershed_fid = watershed_feature.GetFID()
                 local_workspace_dir = os.path.join(
                     WORKSPACE_DIR, scenario_id,
                     f'{watershed_basename}_{watershed_fid}')
