@@ -324,6 +324,7 @@ def threshold_flow_accumulation(
     max_threshold_val = 0
 
     def threshold_op(flow_val, threshold_val):
+        nonlocal max_threshold_val
         valid_mask = ~numpy.isclose(flow_val, nodata)
         result = numpy.empty(flow_val.shape, dtype=numpy.float32)
         result[:] = channel_nodata
