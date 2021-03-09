@@ -336,10 +336,10 @@ def threshold_flow_accumulation(
     pygeoprocessing.raster_calculator(
         [(flow_accum_path, 1), (flow_threshold, 'raw')], threshold_op,
         target_channel_path, gdal.GDT_Byte, channel_nodata)
-    if max_val < flow_threshold:
+    if max_threshold_val < flow_threshold:
         # no drain was found, just use the max
         pygeoprocessing.raster_calculator(
-            [(flow_accum_path, 1), (max_val, 'raw')], threshold_op,
+            [(flow_accum_path, 1), (max_threshold_val, 'raw')], threshold_op,
             target_channel_path, gdal.GDT_Byte, channel_nodata)
 
 
@@ -449,7 +449,7 @@ def ndr_plus(
                 'mask_vector_path': watershed_path,
                 'mask_vector_where_filter': f'"fid"={watershed_fid}'
             })
-    except:
+    except Exception:
         LOGGER.exception(
             f'base_raster_path_list: {base_raster_path_list}\naligned_path_list: {aligned_path_list}\nwatershed_path: {watershed_path} {watershed_fid}\ntarget bounding box: {target_bounding_box}\nbase bounding box {watershed_bb}\nprojection: {utm_srs.ExportToWkt()}')
         raise
