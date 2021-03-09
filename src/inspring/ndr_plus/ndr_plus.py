@@ -321,16 +321,25 @@ def threshold_flow_accumulation(
     nodata = pygeoprocessing.get_raster_info(flow_accum_path)['nodata'][0]
     channel_nodata = 2
 
-    def threshold_op(flow_val):
+    max_threshold_val = 0
+
+    def threshold_op(flow_val, threshold_val):
         valid_mask = ~numpy.isclose(flow_val, nodata)
         result = numpy.empty(flow_val.shape, dtype=numpy.float32)
         result[:] = channel_nodata
-        result[valid_mask] = flow_val[valid_mask] >= flow_threshold
+        result[valid_mask] = flow_val[valid_mask] >= threshold_val
+        max_threshold_val = max(
+            max_threshold_val, numpy.max(flow_val[valid_mask]))
         return result
 
     pygeoprocessing.raster_calculator(
-        [(flow_accum_path, 1)], threshold_op, target_channel_path,
-        gdal.GDT_Byte, channel_nodata)
+        [(flow_accum_path, 1), (flow_threshold, 'raw')], threshold_op,
+        target_channel_path, gdal.GDT_Byte, channel_nodata)
+    if max_val < flow_threshold:
+        # no drain was found, just use the max
+        pygeoprocessing.raster_calculator(
+            [(flow_accum_path, 1), (max_val, 'raw')], threshold_op,
+            target_channel_path, gdal.GDT_Byte, channel_nodata)
 
 
 def get_utm_code(lng, lat):
