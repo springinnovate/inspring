@@ -324,14 +324,20 @@ def threshold_flow_accumulation(
     max_threshold_val = 0
 
     def threshold_op(flow_val, threshold_val):
-        nonlocal max_threshold_val
-        valid_mask = ~numpy.isclose(flow_val, nodata)
-        result = numpy.empty(flow_val.shape, dtype=numpy.float32)
-        result[:] = channel_nodata
-        result[valid_mask] = flow_val[valid_mask] >= threshold_val
-        max_threshold_val = max(
-            max_threshold_val, numpy.max(flow_val[valid_mask]))
-        return result
+        try:
+            nonlocal max_threshold_val
+            valid_mask = ~numpy.isclose(flow_val, nodata)
+            result = numpy.empty(flow_val.shape, dtype=numpy.byte)
+            result[:] = channel_nodata
+            result[valid_mask] = flow_val[valid_mask] >= threshold_val
+            max_threshold_val = max(
+                max_threshold_val, numpy.max(flow_val[valid_mask]))
+            return result
+        except:
+            LOGGER.exception(
+                f'nodata: {nodata}\nflow_val: {flow_val}\nthreshold_val: {threshold_val}\n'
+                f'result: {result}')
+            raise
 
     pygeoprocessing.raster_calculator(
         [(flow_accum_path, 1), (flow_threshold, 'raw')], threshold_op,
