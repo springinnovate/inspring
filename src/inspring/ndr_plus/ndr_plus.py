@@ -330,8 +330,9 @@ def threshold_flow_accumulation(
             result = numpy.empty(flow_val.shape, dtype=numpy.byte)
             result[:] = channel_nodata
             result[valid_mask] = flow_val[valid_mask] >= threshold_val
-            max_threshold_val = max(
-                max_threshold_val, numpy.max(flow_val[valid_mask]))
+            if valid_mask.any():
+                max_threshold_val = max(
+                    max_threshold_val, numpy.max(flow_val[valid_mask]))
             return result
         except:
             LOGGER.exception(
