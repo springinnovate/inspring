@@ -1,6 +1,8 @@
 """Primary script for NDR plus."""
 import logging
 import os
+import shutil
+import tempfile
 import warnings
 
 from osgeo import gdal
@@ -302,6 +304,33 @@ def d_up_op_func(
         target_d_up_raster_path, gdal.GDT_Float32, NODATA)
 
 
+def add_outlets_to_channel_raster(d8_flow_dir_path, channel_raster_path):
+    """Add outlets to an existing channel raster path."""
+    channel_info = pygeoprocessing.get_raster_info(channel_raster_path)
+    workspace_dir = tempfile.mkdtemp(
+        dir=os.path.dirname(channel_raster_path))
+    outlet_vector_path = os.path.join(workspace_dir, 'outlets.gpkg')
+    pygeoprocessing.routing.detect_outlets(
+        (d8_flow_dir_path, 1), outlet_vector_path)
+
+    inv_gt = gdal.InvGeoTransform(channel_info['geotransform'])
+    outlet_vector = gdal.OpenEx(outlet_vector_path, gdal.OF_VECTOR)
+    outlet_layer = outlet_vector.GetLayer()
+    channel_raster = gdal.OpenEx(
+        channel_raster_path, gdal.OF_RASTER | gdal.GA_Update)
+    channel_band = channel_raster.GetRasterBand(1)
+    for outlet_feature in outlet_layer:
+        outlet_point = outlet_feature.GetGeometryRef()
+        i, j = gdal.ApplyGeoTransform(
+            inv_gt, outlet_point.GetX(), outlet_point.GetY())
+        channel_band.WriteArray([[1]], i, j)
+    channel_band = None
+    channel_raster = None
+    outlet_layer = None
+    outlet_vector = None
+    shutil.rmtree(workspace_dir)
+
+
 def threshold_flow_accumulation(
         flow_accum_path, flow_threshold, target_channel_path):
     """Calculate channel raster by thresholding flow accumulation.
@@ -321,33 +350,16 @@ def threshold_flow_accumulation(
     nodata = pygeoprocessing.get_raster_info(flow_accum_path)['nodata'][0]
     channel_nodata = 2
 
-    max_threshold_val = 0
-
     def threshold_op(flow_val, threshold_val):
-        try:
-            nonlocal max_threshold_val
-            valid_mask = ~numpy.isclose(flow_val, nodata)
-            result = numpy.empty(flow_val.shape, dtype=numpy.byte)
-            result[:] = channel_nodata
-            result[valid_mask] = flow_val[valid_mask] >= threshold_val
-            if valid_mask.any():
-                max_threshold_val = max(
-                    max_threshold_val, numpy.max(flow_val[valid_mask]))
-            return result
-        except:
-            LOGGER.exception(
-                f'nodata: {nodata}\nflow_val: {flow_val}\nthreshold_val: {threshold_val}\n'
-                f'result: {result}')
-            raise
+        valid_mask = ~numpy.isclose(flow_val, nodata)
+        result = numpy.empty(flow_val.shape, dtype=numpy.byte)
+        result[:] = channel_nodata
+        result[valid_mask] = flow_val[valid_mask] >= threshold_val
+        return result
 
     pygeoprocessing.raster_calculator(
         [(flow_accum_path, 1), (flow_threshold, 'raw')], threshold_op,
         target_channel_path, gdal.GDT_Byte, channel_nodata)
-    if max_threshold_val < flow_threshold:
-        # no drain was found, just use the max
-        pygeoprocessing.raster_calculator(
-            [(flow_accum_path, 1), (max_threshold_val, 'raw')], threshold_op,
-            target_channel_path, gdal.GDT_Byte, channel_nodata)
 
 
 def get_utm_code(lng, lat):
@@ -504,6 +516,9 @@ def ndr_plus(
     channel_path = os.path.join(workspace_dir, f'channel_{flow_threshold}.tif')
     threshold_flow_accumulation(
         flow_accum_path, flow_threshold, channel_path)
+
+    # add in outlets just in case
+    add_outlets_to_channel_raster(flow_dir_path, channel_path)
 
     # calculate flow path in pixels length down to stream
     pixel_flow_length_raster_path = os.path.join(
