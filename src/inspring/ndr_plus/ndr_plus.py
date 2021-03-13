@@ -467,7 +467,8 @@ def ndr_plus(
 
     pygeoprocessing.routing.fill_pits(
         (aligned_dem_path, 1), filled_dem_path,
-        working_dir=workspace_dir)
+        working_dir=workspace_dir,
+        max_pixel_fill_count=10000)
 
     pygeoprocessing.routing.flow_dir_d8(
         (filled_dem_path, 1), flow_dir_path,
