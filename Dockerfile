@@ -26,7 +26,7 @@ RUN rm /usr/local//ecoshard-bucket-reader-key.json
 
 COPY ./. /usr/local/inspring
 WORKDIR /usr/local/inspring
-RUN git checkout 3e0b1048c9a7d68de58c1941bdb2055259d501a9
+RUN git checkout 724261833ed8393ac1f9cb3ccf523f695ad46c8c
 RUN pip3 install -r requirements.txt
 RUN /usr/bin/python setup.py install
 
