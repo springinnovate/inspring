@@ -319,10 +319,12 @@ def add_outlets_to_channel_raster(d8_flow_dir_path, channel_raster_path):
     channel_raster = gdal.OpenEx(
         channel_raster_path, gdal.OF_RASTER | gdal.GA_Update)
     channel_band = channel_raster.GetRasterBand(1)
+    LOGGER.debug(f"found {outlet_layer.GetFeatureCount()} outlets")
     for outlet_feature in outlet_layer:
         outlet_point = outlet_feature.GetGeometryRef()
         i, j = gdal.ApplyGeoTransform(
             inv_gt, outlet_point.GetX(), outlet_point.GetY())
+        LOGGER.debug(f'setting channel at {i} {j}')
         channel_band.WriteArray([[1]], int(i), int(j))
     channel_band = None
     channel_raster = None
@@ -518,6 +520,7 @@ def ndr_plus(
         flow_accum_path, flow_threshold, channel_path)
 
     # add in outlets just in case
+    LOGGER.debug('adding outlets to channel raster')
     add_outlets_to_channel_raster(flow_dir_path, channel_path)
 
     # calculate flow path in pixels length down to stream
