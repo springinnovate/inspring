@@ -325,12 +325,11 @@ def add_outlets_to_channel_raster(d8_flow_dir_path, channel_raster_path):
         i, j = gdal.ApplyGeoTransform(
             inv_gt, outlet_point.GetX(), outlet_point.GetY())
         LOGGER.debug(f'setting channel at {i} {j}')
-        channel_band.WriteArray([[1]], int(i), int(j))
+        channel_band.WriteArray(numpy.array([[1]]), int(i), int(j))
     channel_band = None
     channel_raster = None
     outlet_layer = None
     outlet_vector = None
-    #shutil.rmtree(workspace_dir)
 
 
 def threshold_flow_accumulation(
