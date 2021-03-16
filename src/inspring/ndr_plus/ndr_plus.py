@@ -437,15 +437,22 @@ def ndr_plus(
     # swizzle so it's xmin, ymin, xmax, ymax
     watershed_bb = [
         watershed_geometry.GetEnvelope()[i] for i in [0, 2, 1, 3]]
-    target_bounding_box = pygeoprocessing.transform_bounding_box(
-        watershed_bb, watershed_layer.GetSpatialRef().ExportToWkt(),
-        utm_srs.ExportToWkt())
+    # make sure the bounding coordinates snap to pixel grid
+    watershed_bb[0] -= watershed_bb[0] % target_cell_length_m
+    watershed_bb[1] -= watershed_bb[1] % target_cell_length_m
+    watershed_bb[2] += watershed_bb[2] % target_cell_length_m
+    watershed_bb[3] += watershed_bb[3] % target_cell_length_m
+
+    target_bounding_box = [
+        round(v) for v in pygeoprocessing.transform_bounding_box(
+            watershed_bb, watershed_layer.GetSpatialRef().ExportToWkt(),
+            utm_srs.ExportToWkt())]
 
     watershed_geometry = None
     watershed_layer = None
     watershed_vector = None
 
-    LOGGER.debug(f'base bb {watershed_bb} to taret {target_bounding_box}')
+    LOGGER.debug(f'base bb {watershed_bb} to target {target_bounding_box}')
 
     base_raster_path_list = [
         dem_path, lulc_path, precip_path, custom_load_path]
@@ -465,7 +472,6 @@ def ndr_plus(
             (target_cell_length_m, -target_cell_length_m),
             target_bounding_box,
             target_projection_wkt=utm_srs.ExportToWkt(),
-            gdal_warp_options=['targetAlignedPixels=TRUE'],
             vector_mask_options={
                 'mask_vector_path': watershed_path,
                 'mask_vector_where_filter': f'"fid"={watershed_fid}'
