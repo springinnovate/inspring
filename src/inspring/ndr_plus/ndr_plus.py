@@ -465,6 +465,7 @@ def ndr_plus(
             (target_cell_length_m, -target_cell_length_m),
             target_bounding_box,
             target_projection_wkt=utm_srs.ExportToWkt(),
+            gdal_warp_options=['targetAlignedPixels=TRUE'],
             vector_mask_options={
                 'mask_vector_path': watershed_path,
                 'mask_vector_where_filter': f'"fid"={watershed_fid}'
