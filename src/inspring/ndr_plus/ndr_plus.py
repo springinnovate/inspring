@@ -437,16 +437,27 @@ def ndr_plus(
     # swizzle so it's xmin, ymin, xmax, ymax
     watershed_bb = [
         watershed_geometry.GetEnvelope()[i] for i in [0, 2, 1, 3]]
-    # make sure the bounding coordinates snap to pixel grid
-    watershed_bb[0] -= watershed_bb[0] % target_cell_length_m
-    watershed_bb[1] -= watershed_bb[1] % target_cell_length_m
-    watershed_bb[2] += watershed_bb[2] % target_cell_length_m
-    watershed_bb[3] += watershed_bb[3] % target_cell_length_m
+
+    # make sure the bounding coordinates snap to pixel grid in global coords
+    dem_info = pygeoprocessing.get_raster_info(dem_path)
+    base_cell_length_deg = dem_info['pixel_size'][0]
+    LOGGER.debug(f'base watershed_bb: {watershed_bb}')
+    watershed_bb[0] -= watershed_bb[0] % base_cell_length_deg
+    watershed_bb[1] -= watershed_bb[1] % base_cell_length_deg
+    watershed_bb[2] += watershed_bb[2] % base_cell_length_deg
+    watershed_bb[3] += watershed_bb[3] % base_cell_length_deg
 
     target_bounding_box = [
         round(v) for v in pygeoprocessing.transform_bounding_box(
             watershed_bb, watershed_layer.GetSpatialRef().ExportToWkt(),
             utm_srs.ExportToWkt())]
+
+    # make sure the bounding coordinates snap to pixel grid
+    LOGGER.debug(f'base watershed_bb: {target_bounding_box}')
+    target_bounding_box[0] -= target_bounding_box[0] % target_cell_length_m
+    target_bounding_box[1] -= target_bounding_box[1] % target_cell_length_m
+    target_bounding_box[2] += target_bounding_box[2] % target_cell_length_m
+    target_bounding_box[3] += target_bounding_box[3] % target_cell_length_m
 
     watershed_geometry = None
     watershed_layer = None
