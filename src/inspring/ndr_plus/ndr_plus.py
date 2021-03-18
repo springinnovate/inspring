@@ -387,6 +387,7 @@ def ndr_plus(
         retention_length_m,
         k_val,
         flow_threshold,
+        max_pixel_fill_count,
         routing_algorithm,
         dem_path,
         lulc_path,
@@ -408,6 +409,9 @@ def ndr_plus(
         k_val (float): K parameter in NDR calculation.
         routing_algorithm (str): one of 'D8' or 'DINF' for D8 or D-infinity
             routing.
+        flow_threshold (int): D8 flow accumulation threshold to cutoff
+        max_pixel_fill_count (int): maximum distance to search when filling
+            pits.
         dem_path (str): path to base DEM raster.
         lulc_path (str): path to LULC raster.
         precip_path (str): path to precipitation raster.
@@ -499,7 +503,7 @@ def ndr_plus(
     pygeoprocessing.routing.fill_pits(
         (aligned_dem_path, 1), filled_dem_path,
         working_dir=workspace_dir,
-        max_pixel_fill_count=10000)
+        max_pixel_fill_count=max_pixel_fill_count)
 
     pygeoprocessing.routing.flow_dir_d8(
         (filled_dem_path, 1), flow_dir_path,
