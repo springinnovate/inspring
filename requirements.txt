@@ -33,4 +33,4 @@ Shapely>=1.6.4
 taskgraph
 xlrd>=1.2.0
 xlwt
-git+https://github.com/richpsharp/pygeoprocessing.git@74373d8ced2cfdb5a674781d76b9420ef0883310
+git+https://github.com/richpsharp/pygeoprocessing.git@76e82720532b588f3fc0763db8a6c64c0bdfab43
