@@ -50,7 +50,8 @@ setup(
             sources=["src/inspring/sdr_c_factor/sdr_c_factor_core.pyx"],
             include_dirs=[
                 numpy.get_include(),
-                'src/inspring/sdr_c_factor'],
+                'src/inspring/sdr_c_factor',
+                'src/inspring/lrucache'],
             language="c++",
         ),
         Extension(
@@ -58,7 +59,17 @@ setup(
             sources=["src/inspring/floodplain_extraction/floodplain_extraction.pyx"],
             include_dirs=[
                 numpy.get_include(),
-                'src/inspring/floodplain_extraction'],
+                'src/inspring/floodplain_extraction',
+                'src/inspring/lrucache'],
+            language="c++",
+        ),
+        Extension(
+            name="inspring.ndr_plus.ndr_plus_cython",
+            sources=["src/inspring/ndr_plus/ndr_plus_cython.pyx"],
+            include_dirs=[
+                numpy.get_include(),
+                'src/inspring/ndr_plus',
+                'src/inspring/lrucache'],
             language="c++",
         ),
     ]
