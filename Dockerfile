@@ -1,5 +1,5 @@
 FROM therealspring/python-gdal:3.1.2
-ARG CURRENT_HASH=undefined
+ENV CURRENT_HASH=undefined
 RUN apt-get update -qq && \
     apt-get install -y \
     curl \
