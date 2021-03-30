@@ -1,5 +1,5 @@
 FROM therealspring/python-gdal:3.1.2
-
+ARG CURRENT_HASH=undefined
 RUN apt-get update -qq && \
     apt-get install -y \
     curl \
@@ -26,7 +26,7 @@ RUN rm /usr/local//ecoshard-bucket-reader-key.json
 
 RUN git clone https://github.com/therealspring/inspring.git /usr/local/inspring
 WORKDIR /usr/local/inspring
-RUN git checkout $INSPRING_HASH
+RUN git checkout ${CURRENT_HASH}
 RUN pip3 install -r requirements.txt
 RUN /usr/bin/python setup.py install
 
