@@ -24,7 +24,7 @@ from . import sdr_c_factor_core
 
 LOGGER = logging.getLogger(__name__)
 
-_DEFAULT_L_CAP = 333
+_DEFAULT_L_CAP = 122
 
 _OUTPUT_BASE_FILES = {
     'rkls_path': 'rkls.tif',
@@ -126,7 +126,7 @@ def execute(args):
             override any C values in the biophysical table.
         args['l_cap'] (float): optional, if present sets the upstream flow
             length cap (square of the upstream area) to this value, otherwise
-            default is 333m.
+            default is 122.
 
     Returns:
         None.
@@ -649,9 +649,6 @@ def _calculate_ls_factor(
                numpy.abs(numpy.cos(aspect_angle[valid_mask])))
 
         contributing_area = (flow_accumulation[valid_mask]-1) * cell_area
-        # From Rafa, the upstream contributing area should be limited to the
-        # square of 122m instead of the L factor being 333 m.
-        contributing_area[contributing_area > l_cap**2] = l_cap**2
         slope_in_radians = numpy.arctan(percent_slope[valid_mask] / 100.0)
 
         # From Equation 4 in "Extension and validation of a geographic
@@ -662,7 +659,7 @@ def _calculate_ls_factor(
             16.8 * numpy.sin(slope_in_radians) - 0.5)
 
         beta = (
-            (numpy.sin(slope_in_radians) / 0.0986) /
+            (numpy.sin(slope_in_radians) / 0.0896) /
             (3 * numpy.sin(slope_in_radians)**0.8 + 0.56))
 
         # Set m value via lookup table: Table 1 in
@@ -685,6 +682,8 @@ def _calculate_ls_factor(
              contributing_area ** (m_exp+1)) /
             ((cell_size ** (m_exp + 2)) * (xij**m_exp) * (22.13**m_exp)))
 
+        # ensure l_factor is no larger than l_cap
+        l_factor[l_factor > l_cap] = l_cap
         result[valid_mask] = l_factor * slope_factor
         return result
 
