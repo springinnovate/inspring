@@ -34,4 +34,4 @@ SQLAlchemy
 taskgraph
 xlrd>=1.2.0
 xlwt
-git+https://github.com/richpsharp/pygeoprocessing.git@448e9e6124739cfbf39c792e78f68d0fc3894f78
+git+https://github.com/richpsharp/pygeoprocessing.git@d2ed9d3f9b2f2a3b463e9cbeba99ee6555e67200
