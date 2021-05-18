@@ -4,7 +4,6 @@ ENV ENV_CURRENT_HASH=$CURRENT_HASH
 RUN apt-get update -qq && \
     apt-get install -y \
     curl \
-    emacs \
     git \
     git-lfs \
     libspatialindex-dev \
@@ -37,6 +36,8 @@ WORKDIR /usr/local/invest/
 RUN git checkout 3.9.0
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
+
+RUN pip uninstall pygeoprocessing -y && pip install git+https://github.com/richpsharp/pygeoprocessing.git@e1a5e15a5ab04fa3a15e404cc937725a581285d7
 
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
