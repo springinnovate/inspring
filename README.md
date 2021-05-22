@@ -1,5 +1,4 @@
-# inspring
-Computational Execution Environment for GIS, Hydrological, and Ecosystem Service Analysis
+# inspring - Computational Execution Environment for GIS, Hydrological, and Ecosystem Service Analysis
 
 This execution environment that can build a Docker image that contains a Python environment with:
 * pygeoprocessing==2.2.0
