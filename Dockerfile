@@ -37,7 +37,7 @@ RUN git checkout 3.9.0
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
-RUN pip uninstall pygeoprocessing -y && pip install git+https://github.com/richpsharp/pygeoprocessing.git@729cb1f744499ba9023def3a4665ae2aa20c7e43
+RUN pip uninstall pygeoprocessing -y && pip install git+https://github.com/richpsharp/pygeoprocessing.git@01f363e2ebb1fbf549742ab0ed31a233f0ee5079
 
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
