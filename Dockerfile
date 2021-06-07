@@ -10,8 +10,8 @@ RUN apt-get update -qq && \
     openssl \
     python3-pip \
     gcc \
-    python-dev \
-    python-setuptools \
+    python3-dev \
+    python3-setuptools \
     && \
     rm -rf /var/lib/apt/lists/*
 
@@ -45,4 +45,4 @@ RUN /usr/bin/python setup.py install
 RUN pip uninstall pygeoprocessing -y && pip install git+https://github.com/richpsharp/pygeoprocessing.git@01f363e2ebb1fbf549742ab0ed31a233f0ee5079
 
 WORKDIR /usr/local/workspace
-ENTRYPOINT ["/usr/bin/python3"]
+ENTRYPOINT ["/usr/bin/python"]
