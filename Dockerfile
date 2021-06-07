@@ -9,6 +9,9 @@ RUN apt-get update -qq && \
     libspatialindex-dev \
     openssl \
     python3-pip \
+    gcc \
+    python-dev \
+    python-setuptools \
     && \
     rm -rf /var/lib/apt/lists/*
 
@@ -23,6 +26,8 @@ RUN echo "export PATH=$PATH:/usr/local/gcloud-sdk/google-cloud-sdk/bin" >> /root
 COPY /ecoshard-bucket-reader-key.json /usr/local//ecoshard-bucket-reader-key.json
 RUN /usr/local/gcloud-sdk/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=/usr/local//ecoshard-bucket-reader-key.json
 RUN rm /usr/local//ecoshard-bucket-reader-key.json
+# CRC mod for good gsutil -m cp mode
+RUN pip uninstall crcmod -y && pip install --no-cache-dir -U crcmod
 
 RUN git clone https://github.com/therealspring/inspring.git /usr/local/inspring
 WORKDIR /usr/local/inspring
@@ -40,4 +45,4 @@ RUN /usr/bin/python setup.py install
 RUN pip uninstall pygeoprocessing -y && pip install git+https://github.com/richpsharp/pygeoprocessing.git@01f363e2ebb1fbf549742ab0ed31a233f0ee5079
 
 WORKDIR /usr/local/workspace
-ENTRYPOINT ["/usr/bin/python"]
+ENTRYPOINT ["/usr/bin/python3"]
