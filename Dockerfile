@@ -42,8 +42,7 @@ RUN git checkout 3.9.0
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
-RUN pip uninstall pygeoprocessing -y && pip install git+https://github.com/richpsharp/pygeoprocessing.git@01f363e2ebb1fbf549742ab0ed31a233f0ee5079
+RUN pip uninstall pygeoprocessing -y && pip install git+https://github.com/richpsharp/pygeoprocessing.git@65cf904108c1de758f167bfb5c726167793aa56c
 RUN pip3 install torch==1.8.1+cpu torchvision==0.9.1+cpu torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
-RUN pip3 install ray[tune]
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
