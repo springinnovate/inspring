@@ -42,7 +42,7 @@ RUN git checkout 3.9.0
 RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
-RUN pip3 uninstall pygeoprocessing -y && pip3 install pygeoprocessing==2.3.0 #git+https://github.com/richpsharp/pygeoprocessing.git@bf556990a13e56b1b09b2aef1912571e48aee954
 RUN pip3 install torch==1.8.1+cpu torchvision==0.9.1+cpu torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
+RUN pip3 uninstall ecoshard -y && pip3 install git+https://github.com/richpsharp/ecoshard.git@3d4903551f7dff26724a99fc7856af02339908a8
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
