@@ -43,6 +43,6 @@ RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
 RUN pip3 install torch==1.8.1+cpu torchvision==0.9.1+cpu torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
-RUN pip3 uninstall ecoshard -y && pip3 install git+https://github.com/richpsharp/ecoshard.git@f7eb103082c5ed7db0d4d245f792b9baeda7ca05
+RUN pip3 uninstall ecoshard -y && pip3 install git+https://github.com/richpsharp/ecoshard.git@ac1cb1ae2560090d7ecb7ec2bd54a8663c5b12bd
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
