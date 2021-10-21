@@ -17,8 +17,8 @@ from osgeo import ogr
 import numpy
 
 from ecoshard import taskgraph
-import pygeoprocessing
-import pygeoprocessing.routing
+import ecoshard.geoprocessing as geoprocessing
+import ecoshard.geoprocessing.routing as routing
 from .. import utils
 from . import sdr_c_factor_core
 
@@ -196,7 +196,7 @@ def execute(args):
         aligned_list.append(f_reg['aligned_c_factor_path'])
         interpolation_list.append('near')
 
-    dem_raster_info = pygeoprocessing.get_raster_info(args['dem_path'])
+    dem_raster_info = geoprocessing.get_raster_info(args['dem_path'])
     min_pixel_size = numpy.min(numpy.abs(dem_raster_info['pixel_size']))
 
     if 'target_pixel_size' in args:
@@ -211,7 +211,7 @@ def execute(args):
 
     vector_mask_options = {'mask_vector_path': args['watersheds_path']}
     align_task = task_graph.add_task(
-        func=pygeoprocessing.align_and_resize_raster_stack,
+        func=geoprocessing.align_and_resize_raster_stack,
         args=(
             base_list, aligned_list, interpolation_list,
             target_pixel_size, 'intersection'),
@@ -227,7 +227,7 @@ def execute(args):
         task_name='align input rasters')
 
     pit_fill_task = task_graph.add_task(
-        func=pygeoprocessing.routing.fill_pits,
+        func=routing.fill_pits,
         args=(
             (f_reg['aligned_dem_path'], 1),
             f_reg['pit_filled_dem_path']),
@@ -238,7 +238,7 @@ def execute(args):
         task_name='fill pits')
 
     slope_task = task_graph.add_task(
-        func=pygeoprocessing.calculate_slope,
+        func=geoprocessing.calculate_slope,
         args=(
             (f_reg['pit_filled_dem_path'], 1),
             f_reg['slope_path']),
@@ -258,7 +258,7 @@ def execute(args):
         task_name='threshold slope')
 
     flow_dir_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_mfd,
+        func=routing.flow_dir_mfd,
         args=(
             (f_reg['pit_filled_dem_path'], 1),
             f_reg['flow_direction_path']),
@@ -269,7 +269,7 @@ def execute(args):
         task_name='flow direction calculation')
 
     flow_accumulation_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_mfd,
+        func=routing.flow_accumulation_mfd,
         args=(
             (f_reg['flow_direction_path'], 1),
             f_reg['flow_accumulation_path']),
@@ -291,7 +291,7 @@ def execute(args):
         task_name='ls factor calculation')
 
     stream_task = task_graph.add_task(
-        func=pygeoprocessing.routing.extract_streams_mfd,
+        func=routing.extract_streams_mfd,
         args=(
             (f_reg['flow_accumulation_path'], 1),
             (f_reg['flow_direction_path'], 1),
@@ -425,7 +425,7 @@ def execute(args):
         task_name='calculate inverse ws factor')
 
     d_dn_task = task_graph.add_task(
-        func=pygeoprocessing.routing.distance_to_channel_mfd,
+        func=routing.distance_to_channel_mfd,
         args=(
             (f_reg['flow_direction_path'], 1),
             (drainage_raster_path_task[0], 1),
@@ -515,7 +515,7 @@ def execute(args):
         task_name='calculate S factor')
 
     d_dn_bare_task = task_graph.add_task(
-        func=pygeoprocessing.routing.distance_to_channel_mfd,
+        func=routing.distance_to_channel_mfd,
         args=(
             (f_reg['flow_direction_path'], 1),
             (drainage_raster_path_task[0], 1),
@@ -614,10 +614,10 @@ def _calculate_ls_factor(
         None
 
     """
-    slope_nodata = pygeoprocessing.get_raster_info(slope_path)['nodata'][0]
-    aspect_nodata = pygeoprocessing.get_raster_info(aspect_path)['nodata'][0]
+    slope_nodata = geoprocessing.get_raster_info(slope_path)['nodata'][0]
+    aspect_nodata = geoprocessing.get_raster_info(aspect_path)['nodata'][0]
 
-    flow_accumulation_info = pygeoprocessing.get_raster_info(
+    flow_accumulation_info = geoprocessing.get_raster_info(
         flow_accumulation_path)
     flow_accumulation_nodata = flow_accumulation_info['nodata'][0]
     cell_size = abs(flow_accumulation_info['pixel_size'][0])
@@ -689,7 +689,7 @@ def _calculate_ls_factor(
         return result
 
     # call vectorize datasets to calculate the ls_factor
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in [
             aspect_path, slope_path, flow_accumulation_path]] +
         [(l_cap, 'raw')], ls_factor_function, out_ls_factor_path,
@@ -716,15 +716,15 @@ def _calculate_rkls(
         None
 
     """
-    erosivity_nodata = pygeoprocessing.get_raster_info(
+    erosivity_nodata = geoprocessing.get_raster_info(
         erosivity_path)['nodata'][0]
-    erodibility_nodata = pygeoprocessing.get_raster_info(
+    erodibility_nodata = geoprocessing.get_raster_info(
         erodibility_path)['nodata'][0]
-    stream_nodata = pygeoprocessing.get_raster_info(
+    stream_nodata = geoprocessing.get_raster_info(
         stream_path)['nodata'][0]
 
     cell_size = abs(
-        pygeoprocessing.get_raster_info(ls_factor_path)['pixel_size'][0])
+        geoprocessing.get_raster_info(ls_factor_path)['pixel_size'][0])
     cell_area_ha = cell_size**2 / 10000.0
 
     def rkls_function(ls_factor, erosivity, erodibility, stream):
@@ -763,7 +763,7 @@ def _calculate_rkls(
 
     # aligning with index 3 that's the stream and the most likely to be
     # aligned with LULCs
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in [
             ls_factor_path, erosivity_path, erodibility_path, stream_path]],
         rkls_function, rkls_path, gdal.GDT_Float32, _TARGET_NODATA)
@@ -781,7 +781,7 @@ def _threshold_slope(slope_path, out_thresholded_slope_path):
         None
 
     """
-    slope_nodata = pygeoprocessing.get_raster_info(slope_path)['nodata'][0]
+    slope_nodata = geoprocessing.get_raster_info(slope_path)['nodata'][0]
 
     def threshold_slope(slope):
         """Convert slope to m/m and clamp at 0.005 and 1.0.
@@ -797,7 +797,7 @@ def _threshold_slope(slope_path, out_thresholded_slope_path):
         result[valid_slope] = slope_m
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(slope_path, 1)], threshold_slope, out_thresholded_slope_path,
         gdal.GDT_Float32, slope_nodata)
 
@@ -821,8 +821,8 @@ def _add_drainage(stream_path, drainage_path, out_stream_and_drainage_path):
         """Add drainage mask to stream layer."""
         return numpy.where(drainage == 1, 1, stream)
 
-    stream_nodata = pygeoprocessing.get_raster_info(stream_path)['nodata'][0]
-    pygeoprocessing.raster_calculator(
+    stream_nodata = geoprocessing.get_raster_info(stream_path)['nodata'][0]
+    geoprocessing.raster_calculator(
         [(path, 1) for path in [stream_path, drainage_path]], add_drainage_op,
         out_stream_and_drainage_path, gdal.GDT_Byte, stream_nodata)
 
@@ -849,14 +849,14 @@ def _calculate_w(
     lulc_to_c = dict(
         [(lulc_code, float(table['usle_c'])) for
          (lulc_code, table) in biophysical_table.items()])
-    if pygeoprocessing.get_raster_info(lulc_path)['nodata'][0] is None:
+    if geoprocessing.get_raster_info(lulc_path)['nodata'][0] is None:
         # will get a case where the raster might be masked but nothing to
         # replace so 0 is used by default. Ensure this exists in lookup.
         if 0 not in lulc_to_c:
             lulc_to_c = lulc_to_c.copy()
             lulc_to_c[0] = 0.0
 
-    pygeoprocessing.reclassify_raster(
+    geoprocessing.reclassify_raster(
         (lulc_path, 1), lulc_to_c, w_factor_path, gdal.GDT_Float32,
         _TARGET_NODATA, values_required=True)
 
@@ -868,7 +868,7 @@ def _calculate_w(
         w_val_copy[nodata_mask] = _TARGET_NODATA
         return w_val_copy
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(w_factor_path, 1)], threshold_w, out_thresholded_w_factor_path,
         gdal.GDT_Float32, _TARGET_NODATA)
 
@@ -899,12 +899,12 @@ def _calculate_cp(
             float(table['usle_p'])
             for (lulc_code, table) in biophysical_table.items()}
 
-    if pygeoprocessing.get_raster_info(lulc_path)['nodata'][0] is None:
+    if geoprocessing.get_raster_info(lulc_path)['nodata'][0] is None:
         # will get a case where the raster might be masked but nothing to
         # replace so 0 is used by default. Ensure this exists in lookup.
         if 0 not in lulc_to_cp:
             lulc_to_cp[0] = 0.0
-    pygeoprocessing.reclassify_raster(
+    geoprocessing.reclassify_raster(
         (lulc_path, 1), lulc_to_cp, cp_factor_path, gdal.GDT_Float32,
         _TARGET_NODATA, values_required=True)
 
@@ -913,9 +913,9 @@ def _calculate_cp(
             suffix='.tif', dir=os.path.dirname(cp_factor_path))
         os.close(f)
         shutil.copyfile(cp_factor_path, tmp_cp_factor_path)
-        c_factor_nodata = pygeoprocessing.get_raster_info(
+        c_factor_nodata = geoprocessing.get_raster_info(
             c_factor_path)['nodata'][0]
-        pygeoprocessing.raster_calculator(
+        geoprocessing.raster_calculator(
             [(tmp_cp_factor_path, 1), (c_factor_path, 1),
              (_TARGET_NODATA, 'raw'), (c_factor_nodata, 'raw'),
              (_TARGET_NODATA, 'raw')],
@@ -948,7 +948,7 @@ def _calculate_usle(
             1 - drainage[valid_mask])
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in [
             rkls_path, cp_factor_path, drainage_raster_path]], usle_op,
         out_usle_path, gdal.GDT_Float32, _TARGET_NODATA)
@@ -976,13 +976,13 @@ def _calculate_bar_factor(
         None.
 
     """
-    flow_accumulation_nodata = pygeoprocessing.get_raster_info(
+    flow_accumulation_nodata = geoprocessing.get_raster_info(
         flow_accumulation_path)['nodata'][0]
 
     LOGGER.debug("doing flow accumulation mfd on %s", factor_path)
     # manually setting compression to DEFLATE because we got some LZW
     # errors when testing with large data.
-    pygeoprocessing.routing.flow_accumulation_mfd(
+    routing.flow_accumulation_mfd(
         (flow_direction_path, 1), accumulation_path,
         weight_raster_path_band=(factor_path, 1),
         raster_driver_creation_tuple=('GTIFF', [
@@ -999,7 +999,7 @@ def _calculate_bar_factor(
         result[valid_mask] = (
             base_accumulation[valid_mask] / flow_accumulation[valid_mask])
         return result
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(accumulation_path, 1), (flow_accumulation_path, 1)], bar_op,
         out_bar_path, gdal.GDT_Float32, _TARGET_NODATA)
 
@@ -1008,8 +1008,8 @@ def _calculate_d_up(
         w_bar_path, s_bar_path, flow_accumulation_path, out_d_up_path):
     """Calculate w_bar * s_bar * sqrt(flow accumulation * cell area)."""
     cell_area = abs(
-        pygeoprocessing.get_raster_info(w_bar_path)['pixel_size'][0])**2
-    flow_accumulation_nodata = pygeoprocessing.get_raster_info(
+        geoprocessing.get_raster_info(w_bar_path)['pixel_size'][0])**2
+    flow_accumulation_nodata = geoprocessing.get_raster_info(
         flow_accumulation_path)['nodata'][0]
 
     def d_up_op(w_bar, s_bar, flow_accumulation):
@@ -1028,7 +1028,7 @@ def _calculate_d_up(
                 flow_accumulation[valid_mask] * cell_area))
         return d_up_array
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in [
             w_bar_path, s_bar_path, flow_accumulation_path]], d_up_op,
         out_d_up_path, gdal.GDT_Float32, _TARGET_NODATA)
@@ -1038,8 +1038,8 @@ def _calculate_d_up_bare(
         s_bar_path, flow_accumulation_path, out_d_up_bare_path):
     """Calculate s_bar * sqrt(flow accumulation * cell area)."""
     cell_area = abs(
-        pygeoprocessing.get_raster_info(s_bar_path)['pixel_size'][0])**2
-    flow_accumulation_nodata = pygeoprocessing.get_raster_info(
+        geoprocessing.get_raster_info(s_bar_path)['pixel_size'][0])**2
+    flow_accumulation_nodata = geoprocessing.get_raster_info(
         flow_accumulation_path)['nodata'][0]
 
     def d_up_op(s_bar, flow_accumulation):
@@ -1058,7 +1058,7 @@ def _calculate_d_up_bare(
             s_bar[valid_mask])
         return d_up_array
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(s_bar_path, 1), (flow_accumulation_path, 1)], d_up_op,
         out_d_up_bare_path, gdal.GDT_Float32, _TARGET_NODATA)
 
@@ -1067,7 +1067,7 @@ def _calculate_inverse_ws_factor(
         thresholded_slope_path, thresholded_w_factor_path,
         out_ws_factor_inverse_path):
     """Calculate 1/(w*s)."""
-    slope_nodata = pygeoprocessing.get_raster_info(
+    slope_nodata = geoprocessing.get_raster_info(
         thresholded_slope_path)['nodata'][0]
 
     def ws_op(w_factor, s_factor):
@@ -1079,7 +1079,7 @@ def _calculate_inverse_ws_factor(
             1.0 / (w_factor[valid_mask] * s_factor[valid_mask]))
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(thresholded_w_factor_path, 1), (thresholded_slope_path, 1)], ws_op,
         out_ws_factor_inverse_path, gdal.GDT_Float32, _TARGET_NODATA)
 
@@ -1087,7 +1087,7 @@ def _calculate_inverse_ws_factor(
 def _calculate_inverse_s_factor(
         thresholded_slope_path, out_s_factor_inverse_path):
     """Calculate 1/s."""
-    slope_nodata = pygeoprocessing.get_raster_info(
+    slope_nodata = geoprocessing.get_raster_info(
         thresholded_slope_path)['nodata'][0]
 
     def s_op(s_factor):
@@ -1098,7 +1098,7 @@ def _calculate_inverse_s_factor(
         result[valid_mask] = 1.0 / s_factor[valid_mask]
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(thresholded_slope_path, 1)], s_op,
         out_s_factor_inverse_path, gdal.GDT_Float32, _TARGET_NODATA)
 
@@ -1106,7 +1106,7 @@ def _calculate_inverse_s_factor(
 def _calculate_ic(d_up_path, d_dn_path, out_ic_factor_path):
     """Calculate log10(d_up/d_dn)."""
     # ic can be positive or negative, so float.min is a reasonable nodata value
-    d_dn_nodata = pygeoprocessing.get_raster_info(d_dn_path)['nodata'][0]
+    d_dn_nodata = geoprocessing.get_raster_info(d_dn_path)['nodata'][0]
 
     def ic_op(d_up, d_dn):
         """Calculate IC factor."""
@@ -1119,7 +1119,7 @@ def _calculate_ic(d_up_path, d_dn_path, out_ic_factor_path):
             d_up[valid_mask] / d_dn[valid_mask])
         return ic_array
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(d_up_path, 1), (d_dn_path, 1)], ic_op, out_ic_factor_path,
         gdal.GDT_Float32, _IC_NODATA)
 
@@ -1138,7 +1138,7 @@ def _calculate_sdr(
         result[stream == 1] = 0.0
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(ic_path, 1), (stream_path, 1)], sdr_op, out_sdr_path,
         gdal.GDT_Float32, _TARGET_NODATA)
 
@@ -1153,7 +1153,7 @@ def _calculate_sed_export(usle_path, sdr_path, target_sed_export_path):
         result[valid_mask] = usle[valid_mask] * sdr[valid_mask]
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(usle_path, 1), (sdr_path, 1)], sed_export_op,
         target_sed_export_path, gdal.GDT_Float32, _TARGET_NODATA)
 
@@ -1168,7 +1168,7 @@ def _calculate_e_prime(usle_path, sdr_path, target_e_prime):
         result[valid_mask] = usle[valid_mask] * (1-sdr[valid_mask])
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(usle_path, 1), (sdr_path, 1)], e_prime_op, target_e_prime,
         gdal.GDT_Float32, _TARGET_NODATA)
 
@@ -1189,7 +1189,7 @@ def _calculate_sed_retention_index(
             sdr_factor[valid_mask] / sdr_max)
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in [rkls_path, usle_path, sdr_path]],
         sediment_index_op, out_sed_retention_index_path, gdal.GDT_Float32,
         _TARGET_NODATA)
@@ -1220,7 +1220,7 @@ def _calculate_sed_retention(
         None
 
     """
-    stream_nodata = pygeoprocessing.get_raster_info(stream_path)['nodata'][0]
+    stream_nodata = geoprocessing.get_raster_info(stream_path)['nodata'][0]
 
     def sediment_retention_bare_soil_op(
             rkls, usle, stream_factor, sdr_factor, sdr_factor_bare_soil):
@@ -1239,7 +1239,7 @@ def _calculate_sed_retention(
                 1 - stream_factor[valid_mask])
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in [
             rkls_path, usle_path, stream_path, sdr_path, sdr_bare_soil_path]],
         sediment_retention_bare_soil_op, out_sed_ret_bare_soil_path,
@@ -1258,13 +1258,13 @@ def _generate_report(
     target_layer.SyncToDisk()
 
     field_summaries = {
-        'usle_tot': pygeoprocessing.zonal_statistics(
+        'usle_tot': geoprocessing.zonal_statistics(
             (usle_path, 1), watershed_results_sdr_path),
-        'sed_export': pygeoprocessing.zonal_statistics(
+        'sed_export': geoprocessing.zonal_statistics(
             (sed_export_path, 1), watershed_results_sdr_path),
-        'sed_retent': pygeoprocessing.zonal_statistics(
+        'sed_retent': geoprocessing.zonal_statistics(
             (sed_retention_path, 1), watershed_results_sdr_path),
-        'sed_dep': pygeoprocessing.zonal_statistics(
+        'sed_dep': geoprocessing.zonal_statistics(
             (sed_deposition_path, 1), watershed_results_sdr_path),
         }
 
