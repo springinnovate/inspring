@@ -16,9 +16,9 @@ from osgeo import gdal
 from osgeo import ogr
 import numpy
 
+from ecoshard import taskgraph
 import pygeoprocessing
 import pygeoprocessing.routing
-import taskgraph
 from .. import utils
 from . import sdr_c_factor_core
 
@@ -112,10 +112,6 @@ def execute(args):
         args['drainage_path'] (string): (optional) path to drainage raster that
             is used to add additional drainage areas to the internally
             calculated stream layer
-        args['n_workers'] (int): if present, indicates how many worker
-            processes should be used in parallel processing. -1 indicates
-            single process mode, 0 is single process but non-blocking mode,
-            and >= 1 is number of processes.
         args['biophysical_table_lucode_field'] (str): optional, if exists
             use this instead of 'lucode'.
         args['c_factor_path'] (str): optional, if present this is a
@@ -175,15 +171,8 @@ def execute(args):
          (_INTERMEDIATE_BASE_FILES, intermediate_output_dir),
          (_TMP_BASE_FILES, churn_dir)], file_suffix)
 
-    try:
-        n_workers = int(args['n_workers'])
-    except (KeyError, ValueError, TypeError):
-        # KeyError when n_workers is not present in args
-        # ValueError when n_workers is an empty string.
-        # TypeError when n_workers is None.
-        n_workers = -1  # Synchronous mode.
     task_graph = taskgraph.TaskGraph(
-        churn_dir, n_workers, reporting_interval=5.0)
+        churn_dir, 3, parallel_mode='thread')
 
     base_list = []
     aligned_list = []
