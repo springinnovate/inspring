@@ -116,8 +116,6 @@ def execute(args):
             processes should be used in parallel processing. -1 indicates
             single process mode, 0 is single process but non-blocking mode,
             and >= 1 is number of processes.
-        args['target_pixel_size'] (list): requested target pixel size in
-            local projection coordinate system.
         args['biophysical_table_lucode_field'] (str): optional, if exists
             use this instead of 'lucode'.
         args['c_factor_path'] (str): optional, if present this is a
@@ -127,6 +125,12 @@ def execute(args):
         args['l_cap'] (float): optional, if present sets the upstream flow
             length cap (square of the upstream area) to this value, otherwise
             default is 122.
+        args['target_pixel_size'] (2-tuple): optional, requested target pixel
+            size in local projection coordinate system. If not provided the
+            pixel size is the smallest of all the input rasters.
+        args['target_projection_wkt'] (str): optional, if provided the
+            model is run in this target projection. Otherwise runs in the DEM
+            projection.
 
     Returns:
         None.
@@ -205,9 +209,17 @@ def execute(args):
 
     dem_raster_info = pygeoprocessing.get_raster_info(args['dem_path'])
     min_pixel_size = numpy.min(numpy.abs(dem_raster_info['pixel_size']))
-    target_pixel_size = (min_pixel_size, -min_pixel_size)
 
-    target_projection_wkt = dem_raster_info['projection_wkt']
+    if 'target_pixel_size' in args:
+        target_pixel_size = args['target_pixel_size']
+    else:
+        target_pixel_size = (min_pixel_size, -min_pixel_size)
+
+    if 'target_projection_wkt' in args:
+        target_projection_wkt = args['target_projection_wkt']
+    else:
+        target_projection_wkt = dem_raster_info['projection_wkt']
+
     vector_mask_options = {'mask_vector_path': args['watersheds_path']}
     align_task = task_graph.add_task(
         func=pygeoprocessing.align_and_resize_raster_stack,
