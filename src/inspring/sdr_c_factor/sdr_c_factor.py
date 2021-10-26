@@ -127,6 +127,8 @@ def execute(args):
         args['target_projection_wkt'] (str): optional, if provided the
             model is run in this target projection. Otherwise runs in the DEM
             projection.
+        args['single_outlet'] (str): if True only one drain is modeled, either
+            a large sink or the lowest pixel on the edge of the dem.
 
     Returns:
         None.
@@ -226,13 +228,34 @@ def execute(args):
         target_path_list=aligned_list,
         task_name='align input rasters')
 
+    if 'single_outlet' in args and args['single_outlet'] is True:
+        get_drain_sink_pixel_task = task_graph.add_task(
+            func=geoprocessing.routing.detect_lowest_drain_and_sink,
+            args=((f_reg['aligned_dem_path'], 1),),
+            store_result=True,
+            dependent_task_list=[align_task],
+            task_name=f'get drain/sink pixel for {f_reg['aligned_dem_path']}')
+
+        edge_pixel, edge_height, pit_pixel, pit_height = (
+            get_drain_sink_pixel_task.get())
+
+        if pit_height < edge_height - 20:
+            # if the pit is 20 m lower than edge it's probably a big sink
+            single_outlet_tuple = pit_pixel
+        else:
+            single_outlet_tuple = edge_pixel
+    else:
+        single_outlet_tuple = None
+
     pit_fill_task = task_graph.add_task(
         func=routing.fill_pits,
         args=(
             (f_reg['aligned_dem_path'], 1),
             f_reg['pit_filled_dem_path']),
-        hash_algorithm='md5',
-        copy_duplicate_artifact=True,
+        kwargs={
+            'working_dir': working_dir,
+            'max_pixel_fill_count': -1,
+            'single_outlet_tuple': single_outlet_tuple},
         target_path_list=[f_reg['pit_filled_dem_path']],
         dependent_task_list=[align_task],
         task_name='fill pits')
