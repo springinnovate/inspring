@@ -42,7 +42,7 @@ RUN cp /usr/local/inspring/requirements.txt .
 RUN /usr/bin/python setup.py install
 
 RUN pip3 install torch==1.8.1+cpu torchvision==0.9.1+cpu torchaudio==0.8.1 -f https://download.pytorch.org/whl/torch_stable.html
-RUN pip3 uninstall ecoshard -y && pip3 install git+https://github.com/therealspring/ecoshard.git@950dec36fce8bd92f9124dd403d85f98ba00c71e
+RUN pip3 uninstall ecoshard -y && pip3 install git+https://github.com/therealspring/ecoshard.git@b9b4580e0cf2992c164aeb61950d84c64def57ef
 RUN pip3 install geopandas
 RUN pip3 install ray[tune]
 WORKDIR /usr/local/workspace
