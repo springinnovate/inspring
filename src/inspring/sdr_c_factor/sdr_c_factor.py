@@ -234,7 +234,7 @@ def execute(args):
             args=((f_reg['aligned_dem_path'], 1),),
             store_result=True,
             dependent_task_list=[align_task],
-            task_name=f'get drain/sink pixel for {f_reg['aligned_dem_path']}')
+            task_name=f"get drain/sink pixel for {f_reg['aligned_dem_path']}")
 
         edge_pixel, edge_height, pit_pixel, pit_height = (
             get_drain_sink_pixel_task.get())
@@ -253,7 +253,7 @@ def execute(args):
             (f_reg['aligned_dem_path'], 1),
             f_reg['pit_filled_dem_path']),
         kwargs={
-            'working_dir': working_dir,
+            'working_dir': args['workspace_dir'],
             'max_pixel_fill_count': -1,
             'single_outlet_tuple': single_outlet_tuple},
         target_path_list=[f_reg['pit_filled_dem_path']],
