@@ -10,7 +10,7 @@ from osgeo import osr
 import pygeoprocessing
 import numpy
 
-from inspring.ndr_plus import ndr_plus_cython
+from inspring.ndr_d8_plus import ndr_d8_plus_cython
 
 LOGGER = logging.getLogger(__name__)
 NODATA = -9999
@@ -599,7 +599,7 @@ def ndr_plus(
 
     downstream_ret_eff_path = os.path.join(
         workspace_dir, 'downstream_ret_eff.tif')
-    ndr_plus_cython.calculate_downstream_ret_eff(
+    ndr_d8_plus_cython.calculate_downstream_ret_eff(
         (flow_dir_path, 1), (channel_path, 1), (eff_n_raster_path, 1),
         retention_length_m, downstream_ret_eff_path,
         temp_dir_path=workspace_dir)
