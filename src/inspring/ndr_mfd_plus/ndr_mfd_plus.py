@@ -64,9 +64,11 @@ def execute(args):
             containing nutrient retention values.
 
             Must contain the following headers:
-
             'load_n', 'eff_n', 'crit_len_n'
 
+        args['fertilizer_path'] (string): path to raster to use for fertlizer
+            rates when biophysical table uses a 'use raster' value for the
+            biophysical table field.
         args['results_suffix'] (string): (optional) a text field to append to
             all output files
         args['threshold_flow_accumulation']: a number representing the flow
