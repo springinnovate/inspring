@@ -65,7 +65,8 @@ def execute(args):
 
             Must contain the following headers:
             'load_n', 'eff_n', 'crit_len_n'
-
+        args['biophyisical_lucode_fieldname'] (str): field in biophysical
+            table that is used to reference the lucode.
         args['fertilizer_path'] (string): path to raster to use for fertlizer
             rates when biophysical table uses a 'use raster' value for the
             biophysical table field.
@@ -111,7 +112,7 @@ def execute(args):
             nutrients_to_process.append(nutrient_id)
 
     lucode_to_parameters = utils.build_lookup_from_csv(
-        args['biophysical_table_path'], 'lucode')
+        args['biophysical_table_path'], args['biophyisical_lucode_fieldname'])
 
     dem_raster_info geoprocessing.get_raster_info(args['dem_path'])
     min_pixel_size = numpy.min(numpy.abs(dem_raster_info['pixel_size']))
@@ -294,7 +295,9 @@ def execute(args):
     load_task = task_graph.add_task(
         func=_calculate_load,
         args=(
-            f_reg['aligned_lulc_path'], lucode_to_parameters,
+            f_reg['aligned_lulc_path'],
+            f_reg['aligned_fertilizer_path'],
+            lucode_to_parameters,
             'load_%s' % nutrient, load_path),
         dependent_task_list=[align_raster_task],
         target_path_list=[load_path],
@@ -491,15 +494,17 @@ def _normalize_raster(base_raster_path_band, target_normalized_raster_path):
 
 
 def _calculate_load(
-        lulc_raster_path, lucode_to_parameters, load_type,
-        target_load_raster):
+        lulc_raster_path, fertilizer_path, lucode_to_parameters,
+        load_type, target_load_raster):
     """Calculate load raster by mapping landcover and multiplying by area.
 
     Args:
         lulc_raster_path (string): path to integer landcover raster.
+        fertilizer_path (str): path to fertilizer path.
         lucode_to_parameters (dict): a mapping of landcover IDs to a
-            dictionary indexed by the value of `load_{load_type}` that
-            represents a per-area nutrient load.
+            dictionary indexed by the value of `load_n` that
+            represents a per-area nutrient load. If contains a non integer
+            field use value from `fertilizer_path` instead.
         load_type (string): represent nutrient to map, either 'load_n' or
             'load_p'.
         target_load_raster (string): path to target raster that will have
@@ -512,6 +517,8 @@ def _calculate_load(
     lulc_raster_info = geoprocessing.get_raster_info(lulc_raster_path)
     nodata_landuse = lulc_raster_info['nodata'][0]
     cell_area_ha = abs(numpy.prod(lulc_raster_info['pixel_size'])) * 0.0001
+
+    # TODO: add fert replacement here
 
     def _map_load_op(lucode_array):
         """Convert unit load to total load & handle nodata."""
