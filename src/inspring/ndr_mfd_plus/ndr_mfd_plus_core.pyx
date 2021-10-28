@@ -552,7 +552,7 @@ def ndr_eff_calculation(
             for i in range(8):
                 neighbor_col = col_offsets[i] + global_col
                 if neighbor_col < 0 or neighbor_col >= n_cols:
-                        continue
+                    continue
                 neighbor_row = row_offsets[i] + global_row
                 if neighbor_row < 0 or neighbor_row >= n_rows:
                     continue
