@@ -8,7 +8,7 @@ import numpy
 import ecoshard.geoprocessing as geoprocessing
 import ecoshard.geoprocessing.routing as routing
 from osgeo import gdal, ogr
-import taskgraph
+from ecoshard import taskgraph
 
 from .. import utils
 from . import ndr_mfd_plus_cython
