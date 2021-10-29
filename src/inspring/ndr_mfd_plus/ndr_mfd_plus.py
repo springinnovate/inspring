@@ -17,6 +17,7 @@ LOGGER = logging.getLogger(__name__)
 
 _OUTPUT_BASE_FILES = {
     'n_export_path': 'n_export.tif',
+    'n_retention_path': 'n_retention.tif',
     }
 
 _INTERMEDIATE_BASE_FILES = {
@@ -351,6 +352,15 @@ def execute(args):
         args=(
             modified_load_path, ndr_path, export_path),
         target_path_list=[export_path],
+        dependent_task_list=[load_task, ndr_task, modified_load_task],
+        task_name='export n')
+
+    retention_path = f_reg['n_retention_path']
+    _ = task_graph.add_task(
+        func=_calculate_retention,
+        args=(
+            modified_load_path, ndr_path, retention_path),
+        target_path_list=[retention_path],
         dependent_task_list=[load_task, ndr_task, modified_load_task],
         task_name='export n')
 
@@ -778,4 +788,31 @@ def _calculate_export(
     geoprocessing.raster_calculator(
         [(surface_load_path, 1), (ndr_path, 1)],
         _calculate_export_op, target_export_path, gdal.GDT_Float32,
+        _TARGET_NODATA)
+
+
+def _calculate_retention(
+        surface_load_path, ndr_path, target_retention_path):
+    """Calculate retention."""
+    load_nodata = geoprocessing.get_raster_info(
+        surface_load_path)['nodata'][0]
+    ndr_nodata = geoprocessing.get_raster_info(
+        ndr_path)['nodata'][0]
+
+    def _calculate_retention_op(modified_load_array, ndr_array):
+        """Combine NDR and subsurface NDR."""
+        # these intermediate outputs should always have defined nodata
+        # values assigned by pygeoprocessing
+        valid_mask = ~(
+            numpy.isclose(modified_load_array, load_nodata) |
+            numpy.isclose(ndr_array, ndr_nodata))
+        result = numpy.empty(valid_mask.shape, dtype=numpy.float32)
+        result[:] = _TARGET_NODATA
+        result[valid_mask] = (
+            modified_load_array[valid_mask] * (1-ndr_array[valid_mask]))
+        return result
+
+    geoprocessing.raster_calculator(
+        [(surface_load_path, 1), (ndr_path, 1)],
+        _calculate_retention_op, target_retention_path, gdal.GDT_Float32,
         _TARGET_NODATA)
