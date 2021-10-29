@@ -6,7 +6,7 @@ import os
 import collections
 
 import numpy
-import pygeoprocessing
+from ecoshard import geoprocessing
 cimport numpy
 cimport cython
 from osgeo import gdal
@@ -58,7 +58,7 @@ cdef extern from "LRUCache.h" nogil:
 ctypedef pair[int, double*] BlockBufferPair
 
 # a class to allow fast random per-pixel access to a raster for both setting
-# and reading pixels.  Copied from src/pygeoprocessing/routing/routing.pyx,
+# and reading pixels.  Copied from src/geoprocessing/routing/routing.pyx,
 # revision 891288683889237cfd3a3d0a1f09483c23489fca.
 cdef class _ManagedRaster:
     cdef LRUCache[int, double*]* lru_cache
@@ -93,7 +93,7 @@ cdef class _ManagedRaster:
         Returns:
             None.
         """
-        raster_info = pygeoprocessing.get_raster_info(raster_path)
+        raster_info = geoprocessing.get_raster_info(raster_path)
         self.raster_x_size, self.raster_y_size = raster_info['raster_size']
         self.block_xsize, self.block_ysize = raster_info['block_size']
         self.block_xmod = self.block_xsize-1
@@ -357,7 +357,7 @@ def ndr_eff_calculation(
 
         Args:
             mfd_flow_direction_path (string): a path to a raster with
-                pygeoprocessing.routing MFD flow direction values.
+                geoprocessing.routing MFD flow direction values.
             stream_path (string): a path to a raster where 1 indicates a
                 stream all other values ignored must be same dimensions and
                 projection as mfd_flow_direction_path.
@@ -376,7 +376,7 @@ def ndr_eff_calculation(
 
     """
     cdef float effective_retention_nodata = -1.0
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         mfd_flow_direction_path, effective_retention_path, gdal.GDT_Float32,
         [effective_retention_nodata])
     fp, to_process_flow_directions_path = tempfile.mkstemp(
@@ -389,22 +389,22 @@ def ndr_eff_calculation(
     cdef int *inflow_offsets = [4, 5, 6, 7, 0, 1, 2, 3]
 
     cdef int n_cols, n_rows
-    flow_dir_info = pygeoprocessing.get_raster_info(mfd_flow_direction_path)
+    flow_dir_info = geoprocessing.get_raster_info(mfd_flow_direction_path)
     n_cols, n_rows = flow_dir_info['raster_size']
 
     cdef stack[int] processing_stack
-    stream_info = pygeoprocessing.get_raster_info(stream_path)
+    stream_info = geoprocessing.get_raster_info(stream_path)
     # cell sizes must be square, so no reason to test at this point.
     cdef float cell_size = abs(stream_info['pixel_size'][0])
 
     cdef _ManagedRaster stream_raster = _ManagedRaster(stream_path, 1, False)
     cdef _ManagedRaster crit_len_raster = _ManagedRaster(
         crit_len_path, 1, False)
-    cdef float crit_len_nodata = pygeoprocessing.get_raster_info(
+    cdef float crit_len_nodata = geoprocessing.get_raster_info(
         crit_len_path)['nodata'][0]
     cdef _ManagedRaster retention_eff_lulc_raster = _ManagedRaster(
         retention_eff_lulc_path, 1, False)
-    cdef float retention_eff_nodata = pygeoprocessing.get_raster_info(
+    cdef float retention_eff_nodata = geoprocessing.get_raster_info(
         retention_eff_lulc_path)['nodata'][0]
     cdef _ManagedRaster effective_retention_raster = _ManagedRaster(
         effective_retention_path, 1, True)
@@ -418,7 +418,7 @@ def ndr_eff_calculation(
             result[:] |= (((mfd_array >> (i*4)) & 0xF) > 0) << i
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(mfd_flow_direction_path, 1)], _mfd_to_flow_dir_op,
         to_process_flow_directions_path, gdal.GDT_Byte, None)
 
@@ -434,7 +434,7 @@ def ndr_eff_calculation(
     cdef int neighbor_outflow_dir_mask, neighbor_process_flow_dir
     cdef int outflow_dirs, dir_mask
 
-    for offset_dict in pygeoprocessing.iterblocks(
+    for offset_dict in geoprocessing.iterblocks(
             (mfd_flow_direction_path, 1), offset_only=True, largest_block=0):
         win_xsize = offset_dict['win_xsize']
         win_ysize = offset_dict['win_ysize']

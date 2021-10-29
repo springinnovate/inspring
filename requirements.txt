@@ -32,4 +32,3 @@ Shapely>=1.6.4
 SQLAlchemy
 xlrd>=1.2.0
 xlwt
-pygeoprocessing==2.2.0
