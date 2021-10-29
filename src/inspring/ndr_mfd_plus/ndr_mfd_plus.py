@@ -106,12 +106,6 @@ def execute(args):
          (_INTERMEDIATE_BASE_FILES, intermediate_output_dir),
          (_CACHE_BASE_FILES, cache_dir)], file_suffix)
 
-    # Build up a list of nutrients to process based on what's checked on
-    nutrients_to_process = []
-    for nutrient_id in ['n', 'p']:
-        if args['calc_' + nutrient_id]:
-            nutrients_to_process.append(nutrient_id)
-
     lucode_to_parameters = utils.build_lookup_from_csv(
         args['biophysical_table_path'], args['biophyisical_lucode_fieldname'])
 
