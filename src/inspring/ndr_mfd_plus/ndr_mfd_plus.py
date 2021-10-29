@@ -43,6 +43,7 @@ _INTERMEDIATE_BASE_FILES = {
 _CACHE_BASE_FILES = {
     'filled_dem_path': 'filled_dem.tif',
     'aligned_dem_path': 'aligned_dem.tif',
+    'aligned_fertilizer_path': 'aligned_fertilizer.tif',
     'slope_path': 'slope.tif',
     'aligned_lulc_path': 'aligned_lulc.tif',
     'aligned_runoff_proxy_path': 'aligned_runoff_proxy.tif',
@@ -128,10 +129,12 @@ def execute(args):
         target_projection_wkt = dem_raster_info['projection_wkt']
 
     base_raster_list = [
-        args['dem_path'], args['lulc_path'], args['runoff_proxy_path']]
+        args['dem_path'], args['lulc_path'], args['runoff_proxy_path'],
+        args['fertilizer_path']]
     aligned_raster_list = [
         f_reg['aligned_dem_path'], f_reg['aligned_lulc_path'],
-        f_reg['aligned_runoff_proxy_path']]
+        f_reg['aligned_runoff_proxy_path'],
+        f_reg['aligned_fertilizer_path']]
 
     align_raster_task = task_graph.add_task(
         func=geoprocessing.align_and_resize_raster_stack,
@@ -290,18 +293,19 @@ def execute(args):
 
     load_path = f_reg['load_n_path']
     modified_load_path = f_reg['modified_load_n_path']
-    # Perrine says that 'n' is the only case where we could consider a
-    # prop subsurface component.  So there's a special case for that.
+
+    lulc_to_load
+
     load_task = task_graph.add_task(
         func=_calculate_load,
         args=(
             f_reg['aligned_lulc_path'],
             f_reg['aligned_fertilizer_path'],
             lucode_to_parameters,
-            'load_%s' % nutrient, load_path),
+            'load_n', load_path),
         dependent_task_list=[align_raster_task],
         target_path_list=[load_path],
-        task_name='%s load' % nutrient)
+        task_name='n load')
 
     modified_load_task = task_graph.add_task(
         func=_multiply_rasters,
@@ -309,30 +313,30 @@ def execute(args):
               _TARGET_NODATA, modified_load_path),
         target_path_list=[modified_load_path],
         dependent_task_list=[load_task, runoff_proxy_index_task],
-        task_name='modified load %s' % nutrient)
+        task_name='modified load n')
 
-    eff_path = f_reg['eff_%s_path' % nutrient]
+    eff_path = f_reg['eff_n_path']
     eff_task = task_graph.add_task(
         func=_map_lulc_to_val_mask_stream,
         args=(
             f_reg['aligned_lulc_path'], f_reg['stream_path'],
-            lucode_to_parameters, 'eff_%s' % nutrient, eff_path),
+            lucode_to_parameters, 'eff_n', eff_path),
         target_path_list=[eff_path],
         dependent_task_list=[align_raster_task, stream_extraction_task],
-        task_name='ret eff %s' % nutrient)
+        task_name='ret eff n')
 
-    crit_len_path = f_reg['crit_len_%s_path' % nutrient]
+    crit_len_path = f_reg['crit_len_n_path']
     crit_len_task = task_graph.add_task(
         func=_map_lulc_to_val_mask_stream,
         args=(
             f_reg['aligned_lulc_path'], f_reg['stream_path'],
-            lucode_to_parameters, 'crit_len_%s' % nutrient, crit_len_path),
+            lucode_to_parameters, 'crit_len_n', crit_len_path),
         target_path_list=[crit_len_path],
         dependent_task_list=[align_raster_task, stream_extraction_task],
-        task_name='ret eff %s' % nutrient)
+        task_name='ret eff n')
 
     effective_retention_path = (
-        f_reg['effective_retention_%s_path' % nutrient])
+        f_reg['effective_retention_n_path'])
     ndr_eff_task = task_graph.add_task(
         func=ndr_mfd_plus_core.ndr_eff_calculation,
         args=(
@@ -341,9 +345,9 @@ def execute(args):
         target_path_list=[effective_retention_path],
         dependent_task_list=[
             stream_extraction_task, eff_task, crit_len_task],
-        task_name='eff ret %s' % nutrient)
+        task_name='eff ret n')
 
-    ndr_path = f_reg['ndr_%s_path' % nutrient]
+    ndr_path = f_reg['ndr_n_path']
     ndr_task = task_graph.add_task(
         func=_calculate_ndr,
         args=(
@@ -351,16 +355,16 @@ def execute(args):
             float(args['k_param']), ndr_path),
         target_path_list=[ndr_path],
         dependent_task_list=[ndr_eff_task, ic_task],
-        task_name='calc ndr %s' % nutrient)
+        task_name='calc ndr n')
 
-    export_path = f_reg['%s_export_path' % nutrient]
+    export_path = f_reg['n_export_path']
     calculate_export_task = task_graph.add_task(
         func=_calculate_export,
         args=(
             modified_load_path, ndr_path, export_path),
         target_path_list=[export_path],
         dependent_task_list=[load_task, ndr_task],
-        task_name='export %s' % nutrient)
+        task_name='export n')
 
     task_graph.close()
     task_graph.join()
@@ -518,18 +522,22 @@ def _calculate_load(
     nodata_landuse = lulc_raster_info['nodata'][0]
     cell_area_ha = abs(numpy.prod(lulc_raster_info['pixel_size'])) * 0.0001
 
-    # TODO: add fert replacement here
-
-    def _map_load_op(lucode_array):
+    def _map_load_op(lucode_array, fertilizer_array):
         """Convert unit load to total load & handle nodata."""
-        result = numpy.empty(lucode_array.shape)
-        result[:] = _TARGET_NODATA
+        result = numpy.full(
+            lucode_array.shape, _TARGET_NODATA, dtype=numpy.float32)
         for lucode in numpy.unique(lucode_array):
             if lucode != nodata_landuse:
+                lucode_mask = lucode_array == lucode
                 try:
-                    result[lucode_array == lucode] = (
-                        lucode_to_parameters[lucode][load_type] *
-                        cell_area_ha)
+                    load_val = lucode_to_parameters[lucode][load_type]
+                    # load val will either be a float or a "use raster"
+                    try:
+                        load_val = float(load_val)
+                    except ValueError:
+                        load_val = fertilizer_array[lucode_mask]
+
+                    result[lucode_mask] = load_val * cell_area_ha
                 except KeyError:
                     raise KeyError(
                         'lucode: %d is present in the landuse raster but '
@@ -537,8 +545,8 @@ def _calculate_load(
         return result
 
     geoprocessing.raster_calculator(
-        [(lulc_raster_path, 1)], _map_load_op, target_load_raster,
-        gdal.GDT_Float32, _TARGET_NODATA)
+        [(lulc_raster_path, 1), (fertilizer_array, 1)], _map_load_op,
+        target_load_raster, gdal.GDT_Float32, _TARGET_NODATA)
 
 
 def _multiply_rasters(raster_path_list, target_nodata, target_result_path):
