@@ -11,7 +11,7 @@ from osgeo import gdal, ogr
 import taskgraph
 
 from .. import utils
-from . import ndr_mfd_plus_core
+from . import ndr_mfd_plus_cython
 
 LOGGER = logging.getLogger(__name__)
 
@@ -37,7 +37,6 @@ _INTERMEDIATE_BASE_FILES = {
     'flow_accumulation_path': 'flow_accumulation.tif',
     'flow_direction_path': 'flow_direction.tif',
     'thresholded_slope_path': 'thresholded_slope.tif',
-    'dist_to_channel_path': 'dist_to_channel.tif',
     }
 
 _CACHE_BASE_FILES = {
@@ -115,7 +114,7 @@ def execute(args):
     lucode_to_parameters = utils.build_lookup_from_csv(
         args['biophysical_table_path'], args['biophyisical_lucode_fieldname'])
 
-    dem_raster_info geoprocessing.get_raster_info(args['dem_path'])
+    dem_raster_info = geoprocessing.get_raster_info(args['dem_path'])
     min_pixel_size = numpy.min(numpy.abs(dem_raster_info['pixel_size']))
 
     if 'target_pixel_size' in args:
@@ -274,15 +273,6 @@ def execute(args):
         target_path_list=[f_reg['d_dn_path']],
         task_name='d dn')
 
-    dist_to_channel_task = task_graph.add_task(
-        func=routing.distance_to_channel_mfd,
-        args=(
-            (f_reg['flow_direction_path'], 1), (f_reg['stream_path'], 1),
-            f_reg['dist_to_channel_path']),
-        dependent_task_list=[stream_extraction_task],
-        target_path_list=[f_reg['dist_to_channel_path']],
-        task_name='dist to channel')
-
     ic_task = task_graph.add_task(
         func=calculate_ic,
         args=(
@@ -293,8 +283,6 @@ def execute(args):
 
     load_path = f_reg['load_n_path']
     modified_load_path = f_reg['modified_load_n_path']
-
-    lulc_to_load
 
     load_task = task_graph.add_task(
         func=_calculate_load,
@@ -338,7 +326,7 @@ def execute(args):
     effective_retention_path = (
         f_reg['effective_retention_n_path'])
     ndr_eff_task = task_graph.add_task(
-        func=ndr_mfd_plus_core.ndr_eff_calculation,
+        func=ndr_mfd_plus_cython.ndr_eff_calculation,
         args=(
             f_reg['flow_direction_path'], f_reg['stream_path'], eff_path,
             crit_len_path, effective_retention_path),
@@ -358,12 +346,12 @@ def execute(args):
         task_name='calc ndr n')
 
     export_path = f_reg['n_export_path']
-    calculate_export_task = task_graph.add_task(
+    _ = task_graph.add_task(
         func=_calculate_export,
         args=(
             modified_load_path, ndr_path, export_path),
         target_path_list=[export_path],
-        dependent_task_list=[load_task, ndr_task],
+        dependent_task_list=[load_task, ndr_task, modified_load_task],
         task_name='export n')
 
     task_graph.close()
@@ -545,7 +533,7 @@ def _calculate_load(
         return result
 
     geoprocessing.raster_calculator(
-        [(lulc_raster_path, 1), (fertilizer_array, 1)], _map_load_op,
+        [(lulc_raster_path, 1), (fertilizer_path, 1)], _map_load_op,
         target_load_raster, gdal.GDT_Float32, _TARGET_NODATA)
 
 
@@ -766,29 +754,6 @@ def _calculate_ndr(
         _calculate_ndr_op, target_ndr_path, gdal.GDT_Float32, _TARGET_NODATA)
 
 
-def _calculate_sub_ndr(
-        eff_sub, crit_len_sub, dist_to_channel_path, target_sub_ndr_path):
-    """Calculate subsurface: subndr = eff_sub(1-e^(-5*l/crit_len)."""
-    dist_to_channel_nodata = geoprocessing.get_raster_info(
-        dist_to_channel_path)['nodata'][0]
-
-    def _sub_ndr_op(dist_to_channel_array):
-        """Calculate subsurface NDR."""
-        # nodata value from this ntermediate output should always be
-        # defined by pygeoprocessing, not None
-        valid_mask = ~numpy.isclose(
-            dist_to_channel_array, dist_to_channel_nodata)
-        result = numpy.empty(valid_mask.shape, dtype=numpy.float32)
-        result[:] = _TARGET_NODATA
-        result[valid_mask] = 1.0 - eff_sub * (
-            1-numpy.exp(-5*dist_to_channel_array[valid_mask]/crit_len_sub))
-        return result
-
-    geoprocessing.raster_calculator(
-        [(dist_to_channel_path, 1)], _sub_ndr_op, target_sub_ndr_path,
-        gdal.GDT_Float32, _TARGET_NODATA)
-
-
 def _calculate_export(
         surface_load_path, ndr_path, target_export_path):
     """Calculate export."""
@@ -814,38 +779,3 @@ def _calculate_export(
         [(surface_load_path, 1), (ndr_path, 1)],
         _calculate_export_op, target_export_path, gdal.GDT_Float32,
         _TARGET_NODATA)
-
-
-def _aggregate_and_pickle_total(
-        base_raster_path_band, aggregate_vector_path, target_pickle_path):
-    """Aggregate base raster path to vector path FIDs and pickle result.
-
-    Args:
-        base_raster_path_band (tuple): raster/path band to aggregate over.
-        aggregate_vector_path (string): path to vector to use geometry to
-            aggregate over.
-        target_pickle_path (string): path to a file that will contain the
-            result of a geoprocessing.zonal_statistics call over
-            base_raster_path_band from aggregate_vector_path.
-
-    Returns:
-        None.
-
-    """
-    result = geoprocessing.zonal_statistics(
-        base_raster_path_band, aggregate_vector_path,
-        working_dir=os.path.dirname(target_pickle_path))
-
-    with open(target_pickle_path, 'wb') as target_pickle_file:
-        pickle.dump(result, target_pickle_file)
-
-
-def create_vector_copy(base_vector_path, target_vector_path):
-    """Create a copy of base vector."""
-    if os.path.isfile(target_vector_path):
-        os.remove(target_vector_path)
-    base_vector = gdal.OpenEx(base_vector_path, gdal.OF_VECTOR)
-    driver = gdal.GetDriverByName('ESRI Shapefile')
-    target_vector = driver.CreateCopy(
-        target_vector_path, base_vector)
-    target_vector = None  # seemingly uncessary but gdal seems to like it.
