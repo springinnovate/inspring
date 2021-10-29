@@ -18,6 +18,7 @@ setup(
     packages=[
         'inspring',
         'inspring.sdr_c_factor',
+        'inspring.ndr_mfd_plus',
     ],
     package_dir={
         'inspring': 'src/inspring'
