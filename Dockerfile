@@ -15,18 +15,18 @@ RUN apt-get update -qq && \
     python3-tk
 
 SHELL ["/bin/bash", "-c"]
-WORKDIR /usr/local/gcloud-sdk
-RUN wget https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-284.0.0-linux-x86_64.tar.gz && tar -xvzf google-cloud-sdk-284.0.0-linux-x86_64.tar.gz
-RUN ./google-cloud-sdk/install.sh
-RUN source /usr/local/gcloud-sdk/google-cloud-sdk/completion.bash.inc
-RUN source /usr/local/gcloud-sdk/google-cloud-sdk/path.bash.inc
-RUN echo "export PATH=$PATH:/usr/local/gcloud-sdk/google-cloud-sdk/bin" >> /root/.bashrc
+#WORKDIR /usr/local/gcloud-sdk
+#RUN wget https://dl.google.com/dl/cloudsdk/channels/rapid/downloads/google-cloud-sdk-284.0.0-linux-x86_64.tar.gz && tar -xvzf google-cloud-sdk-284.0.0-linux-x86_64.tar.gz
+#RUN ./google-cloud-sdk/install.sh
+#RUN source /usr/local/gcloud-sdk/google-cloud-sdk/completion.bash.inc
+#RUN source /usr/local/gcloud-sdk/google-cloud-sdk/path.bash.inc
+#RUN echo "export PATH=$PATH:/usr/local/gcloud-sdk/google-cloud-sdk/bin" >> /root/.bashrc
 
-COPY /ecoshard-bucket-reader-key.json /usr/local//ecoshard-bucket-reader-key.json
-RUN /usr/local/gcloud-sdk/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=/usr/local//ecoshard-bucket-reader-key.json
-RUN rm /usr/local//ecoshard-bucket-reader-key.json
+#COPY /ecoshard-bucket-reader-key.json /usr/local//ecoshard-bucket-reader-key.json
+#RUN /usr/local/gcloud-sdk/google-cloud-sdk/bin/gcloud auth activate-service-account --key-file=/usr/local//ecoshard-bucket-reader-key.json
+#RUN rm /usr/local//ecoshard-bucket-reader-key.json
 # CRC mod for good gsutil -m cp mode
-RUN pip uninstall crcmod -y && pip install --no-cache-dir -U crcmod
+#RUN pip uninstall crcmod -y && pip install --no-cache-dir -U crcmod
 
 RUN git clone https://github.com/therealspring/inspring.git /usr/local/inspring
 WORKDIR /usr/local/inspring

@@ -13,6 +13,7 @@
 # on pip.
 
 chardet>=3.0.4
+editdistance
 Cython
 flask
 GDAL>=3.1.2
