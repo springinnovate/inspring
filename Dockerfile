@@ -45,5 +45,6 @@ RUN pip3 install torch==1.8.1+cpu torchvision==0.9.1+cpu torchaudio==0.8.1 -f ht
 RUN pip3 uninstall ecoshard -y && pip3 install git+https://github.com/therealspring/ecoshard.git@b9b4580e0cf2992c164aeb61950d84c64def57ef
 RUN pip3 install geopandas
 RUN pip3 install ray[tune]
+RUN pip3 install editdistance
 WORKDIR /usr/local/workspace
 ENTRYPOINT ["/usr/bin/python"]
