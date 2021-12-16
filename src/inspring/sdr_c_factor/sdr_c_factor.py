@@ -563,18 +563,19 @@ def execute(args):
 
 def _calculate_wishmeier_smith_ls():
     """."""
-     {   // Wischmeier and Smith
-        if( Slope > 0.0505 )    // >  ca. 3°
-        {
-            LS  = sqrt(SCA / 22.13)
-                * (65.41 * sin_Slope * sin_Slope + 4.56 * sin_Slope + 0.065);
-        }
-        else                    // <= ca. 3°
-        {
-            LS  = pow (SCA / 22.13, 3. * pow(Slope, 0.6))
-                * (65.41 * sin_Slope * sin_Slope + 4.56 * sin_Slope + 0.065);
-        }
-        break; }
+    pass
+     # {   // Wischmeier and Smith
+     #    if( Slope > 0.0505 )    // >  ca. 3°
+     #    {
+     #        LS  = sqrt(SCA / 22.13)
+     #            * (65.41 * sin_Slope * sin_Slope + 4.56 * sin_Slope + 0.065);
+     #    }
+     #    else                    // <= ca. 3°
+     #    {
+     #        LS  = pow (SCA / 22.13, 3. * pow(Slope, 0.6))
+     #            * (65.41 * sin_Slope * sin_Slope + 4.56 * sin_Slope + 0.065);
+     #    }
+     #    break; }
 
 
 def _calculate_ls_factor(
