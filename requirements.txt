@@ -14,9 +14,9 @@
 
 chardet>=3.0.4
 Cython
-ecoshard==0.5.0
+#ecoshard==0.5.0
 flask
-GDAL>=3.1.2
+#GDAL>=3.1.2
 matplotlib
 numpy>=1.20.0
 pandas>=0.22.0
