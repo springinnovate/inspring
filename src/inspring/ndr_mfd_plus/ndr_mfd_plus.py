@@ -86,6 +86,8 @@ def execute(args):
             projection.
         args['single_outlet'] (str): if True only one drain is modeled, either
             a large sink or the lowest pixel on the edge of the dem.
+        args['crit_len_n'] (float) (optional): value of crit len n to use if
+            not present.
 
     Returns:
         None
@@ -106,8 +108,11 @@ def execute(args):
          (_INTERMEDIATE_BASE_FILES, intermediate_output_dir),
          (_CACHE_BASE_FILES, cache_dir)], file_suffix)
 
+    if 'crit_len_n' in args:
+        default_keys = {'crit_len_n': float(args['crit_len_n'])}
     lucode_to_parameters = utils.build_lookup_from_csv(
-        args['biophysical_table_path'], args['biophyisical_lucode_fieldname'])
+        args['biophysical_table_path'], args['biophyisical_lucode_fieldname'],
+        default_keys)
 
     dem_raster_info = geoprocessing.get_raster_info(args['dem_path'])
     min_pixel_size = numpy.min(numpy.abs(dem_raster_info['pixel_size']))

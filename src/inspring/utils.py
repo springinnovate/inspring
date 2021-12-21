@@ -421,7 +421,8 @@ def build_file_registry(base_file_path_list, file_suffix):
 
 
 def build_lookup_from_csv(
-        table_path, key_field, to_lower=True, warn_if_missing=True):
+        table_path, key_field, to_lower=True, warn_if_missing=True,
+        default_keys={}):
     """Read a CSV table into a dictionary indexed by `key_field`.
 
     Creates a dictionary from a CSV whose keys are unique entries in the CSV
@@ -439,6 +440,8 @@ def build_lookup_from_csv(
             string values.
         warn_if_missing (bool): If True, warnings are logged if there are
             empty headers or value rows.
+        default_keys (dict): Optional, if present any keys in the dictionary
+            that are not present in the table are inserted with default values.
 
     Returns:
         lookup_dict (dict): a dictionary of the form {
@@ -487,6 +490,9 @@ def build_lookup_from_csv(
             continue
         if row.isnull().values.any():
             row = row.fillna('')
+        for default_key, default_value in default_keys.items():
+            if default_key not in row:
+                row[default_key] = default_value
         lookup_dict[row[key_index]] = dict(zip(header_row, row))
     return lookup_dict
 
