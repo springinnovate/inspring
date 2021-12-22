@@ -93,6 +93,7 @@ def execute(args):
         None
 
     """
+    LOGGER.info('********************* NDFMFDPLUS')
     output_dir = os.path.join(args['workspace_dir'])
     intermediate_output_dir = os.path.join(
         args['workspace_dir'], 'intermediate_outputs')
@@ -108,11 +109,14 @@ def execute(args):
          (_INTERMEDIATE_BASE_FILES, intermediate_output_dir),
          (_CACHE_BASE_FILES, cache_dir)], file_suffix)
 
+    print('checking crit len')
     if 'crit_len_n' in args:
+        print('crit len in args')
         default_keys = {'crit_len_n': float(args['crit_len_n'])}
+        print(default_keys)
     lucode_to_parameters = utils.build_lookup_from_csv(
         args['biophysical_table_path'], args['biophyisical_lucode_fieldname'],
-        default_keys)
+        default_keys=default_keys)
     LOGGER.error(lucode_to_parameters)
 
     dem_raster_info = geoprocessing.get_raster_info(args['dem_path'])
