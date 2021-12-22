@@ -113,6 +113,7 @@ def execute(args):
     lucode_to_parameters = utils.build_lookup_from_csv(
         args['biophysical_table_path'], args['biophyisical_lucode_fieldname'],
         default_keys)
+    LOGGER.error(lucode_to_parameters)
 
     dem_raster_info = geoprocessing.get_raster_info(args['dem_path'])
     min_pixel_size = numpy.min(numpy.abs(dem_raster_info['pixel_size']))

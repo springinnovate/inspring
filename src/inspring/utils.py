@@ -493,6 +493,7 @@ def build_lookup_from_csv(
         for default_key, default_value in default_keys.items():
             if default_key not in row:
                 row[default_key] = default_value
+                LOGGER.error(f'adding to row: {row}')
         lookup_dict[row[key_index]] = dict(zip(header_row, row))
     return lookup_dict
 
