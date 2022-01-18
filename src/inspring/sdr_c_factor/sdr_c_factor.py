@@ -129,6 +129,10 @@ def execute(args):
             projection.
         args['single_outlet'] (str): if True only one drain is modeled, either
             a large sink or the lowest pixel on the edge of the dem.
+        args['prealigned'] (bool): if true, input rasters are already aligned
+            and projected.
+        args['reuse_dem'] (bool): if true, attempts to reuse a DEM from a
+            previous run if it exists based off its filename.
 
     Returns:
         None.
@@ -173,13 +177,35 @@ def execute(args):
          (_INTERMEDIATE_BASE_FILES, intermediate_output_dir),
          (_TMP_BASE_FILES, churn_dir)], file_suffix)
 
+    # scrub the file suffix from some files if reusing the DEM
+    if 'reuse_dem' in args and args['reuse_dem']:
+        for key, target_path in [
+                ('stream_and_drainage_path', 'stream_and_drainage.tif'),
+                ('stream_path', 'stream.tif'),
+                ('dem_offset_path', 'dem_offset.tif'),
+                ('flow_accumulation_path', 'flow_accumulation.tif'),
+                ('flow_direction_path', 'flow_direction.tif'),
+                ('pit_filled_dem_path', 'pit_filled_dem.tif'),
+                ('s_accumulation_path', 's_accumulation.tif'),
+                ('s_bar_path', 's_bar.tif'),
+                ('s_inverse_path', 's_inverse.tif'),
+                ('slope_path', 'slope.tif'),
+                ('thresholded_slope_path', 'slope_threshold.tif'),
+                ('aligned_dem_path', 'aligned_dem.tif'),
+                ('aligned_drainage_path', 'aligned_drainage.tif')]:
+            f_reg[key] = os.path.join(
+                os.path.dirname(f_reg[key]), target_path)
+
     task_graph = taskgraph.TaskGraph(churn_dir, -1)
 
     base_list = []
     aligned_list = []
+    aligned_key_list = []
     for file_key in ['dem', 'lulc', 'erosivity', 'erodibility']:
         base_list.append(args[file_key + "_path"])
         aligned_list.append(f_reg["aligned_" + file_key + "_path"])
+        aligned_key_list.append(
+            (file_key + "_path", "aligned_" + file_key + "_path"))
     # all continuous rasters can use bilinaer, but lulc should be mode
     interpolation_list = ['bilinear', 'mode', 'bilinear', 'bilinear']
 
@@ -188,6 +214,7 @@ def execute(args):
         drainage_present = True
         base_list.append(args['drainage_path'])
         aligned_list.append(f_reg['aligned_drainage_path'])
+        aligned_key_list.append(('drainage_path', 'aligned_drainage_path'))
         interpolation_list.append('near')
 
     c_factor_present = False
@@ -195,6 +222,7 @@ def execute(args):
         c_factor_present = True
         base_list.append(args['c_factor_path'])
         aligned_list.append(f_reg['aligned_c_factor_path'])
+        aligned_key_list.append(('c_factor_path', 'aligned_c_factor_path'))
         interpolation_list.append('near')
 
     dem_raster_info = geoprocessing.get_raster_info(args['dem_path'])
@@ -210,20 +238,26 @@ def execute(args):
     else:
         target_projection_wkt = dem_raster_info['projection_wkt']
 
-    vector_mask_options = {'mask_vector_path': args['watersheds_path']}
-    align_task = task_graph.add_task(
-        func=geoprocessing.align_and_resize_raster_stack,
-        args=(
-            base_list, aligned_list, interpolation_list,
-            target_pixel_size, 'intersection'),
-        kwargs={
-            'target_projection_wkt': target_projection_wkt,
-            'base_vector_path_list': (args['watersheds_path'],),
-            'raster_align_index': 0,
-            'vector_mask_options': vector_mask_options,
-            },
-        target_path_list=aligned_list,
-        task_name='align input rasters')
+    if 'prealigned' not in args or not args['prealigned']:
+        vector_mask_options = {'mask_vector_path': args['watersheds_path']}
+        align_task = task_graph.add_task(
+            func=geoprocessing.align_and_resize_raster_stack,
+            args=(
+                base_list, aligned_list, interpolation_list,
+                target_pixel_size, 'intersection'),
+            kwargs={
+                'target_projection_wkt': target_projection_wkt,
+                'base_vector_path_list': (args['watersheds_path'],),
+                'raster_align_index': 0,
+                'vector_mask_options': vector_mask_options,
+                },
+            target_path_list=aligned_list,
+            task_name='align input rasters')
+    else:
+        # the aligned stuff is the base stuff
+        for base_key, aligned_key in aligned_key_list:
+            f_reg[aligned_key] = args[base_key]
+        align_task = task_graph.add_task()
 
     if 'single_outlet' in args and args['single_outlet'] is True:
         get_drain_sink_pixel_task = task_graph.add_task(
