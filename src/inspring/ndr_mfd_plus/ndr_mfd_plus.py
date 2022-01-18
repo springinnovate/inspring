@@ -109,11 +109,24 @@ def execute(args):
          (_INTERMEDIATE_BASE_FILES, intermediate_output_dir),
          (_CACHE_BASE_FILES, cache_dir)], file_suffix)
 
-    print('checking crit len')
+    if 'reuse_dem' in args and args['reuse_dem']:
+        for key, target_path in [
+                ('stream_path', 'stream.tif'),
+                ('filled_dem_path', 'filled_dem.tif'),
+                ('flow_accumulation_path', 'flow_accumulation.tif'),
+                ('flow_direction_path', 'flow_direction.tif'),
+                ('s_accumulation_path', 's_accumulation.tif'),
+                ('s_bar_path', 's_bar.tif'),
+                ('s_factor_inverse_path', 's_factor_inverse.tif'),
+                ('slope_path', 'slope.tif'),
+                ('thresholded_slope_path', 'slope_threshold.tif'),
+                ('aligned_dem_path', 'aligned_dem.tif'),
+                ]:
+            f_reg[key] = os.path.join(
+                os.path.dirname(f_reg[key]), target_path)
+
     if 'crit_len_n' in args:
-        print('crit len in args')
         default_keys = {'crit_len_n': float(args['crit_len_n'])}
-        print(default_keys)
     lucode_to_parameters = utils.build_lookup_from_csv(
         args['biophysical_table_path'], args['biophyisical_lucode_fieldname'],
         default_keys=default_keys)
@@ -140,20 +153,35 @@ def execute(args):
         f_reg['aligned_runoff_proxy_path'],
         f_reg['aligned_fertilizer_path']]
 
-    align_raster_task = task_graph.add_task(
-        func=geoprocessing.align_and_resize_raster_stack,
-        args=(
-            base_raster_list, aligned_raster_list,
-            ['near']*len(base_raster_list), target_pixel_size,
-            'intersection'),
-        kwargs={
-            'target_projection_wkt': target_projection_wkt,
-            'base_vector_path_list': [args['watersheds_path']],
-            'raster_align_index': 0,
-            'vector_mask_options': {
-                'mask_vector_path': args['watersheds_path']}},
-        target_path_list=aligned_raster_list,
-        task_name='align rasters')
+    base_key_list = [
+        'dem_path',
+        'lulc_path',
+        'runoff_proxy_path',
+        'fertilizer_path',
+        ]
+    aligned_key_list = [(x, f'aligned_{x}') for x in base_key_list]
+
+    if 'prealigned' not in args or not args['prealigned']:
+        vector_mask_options = {'mask_vector_path': args['watersheds_path']}
+        align_raster_task = task_graph.add_task(
+            func=geoprocessing.align_and_resize_raster_stack,
+            args=(
+                base_raster_list, aligned_raster_list,
+                ['near']*len(base_raster_list), target_pixel_size,
+                'intersection'),
+            kwargs={
+                'target_projection_wkt': target_projection_wkt,
+                'base_vector_path_list': (args['watersheds_path'],),
+                'raster_align_index': 0,
+                'vector_mask_options': vector_mask_options,
+                },
+            target_path_list=aligned_raster_list,
+            task_name='align input rasters')
+    else:
+        # the aligned stuff is the base stuff
+        for base_key, aligned_key in aligned_key_list:
+            f_reg[aligned_key] = args[base_key]
+        align_raster_task = task_graph.add_task()
 
     if 'single_outlet' in args and args['single_outlet'] is True:
         get_drain_sink_pixel_task = task_graph.add_task(

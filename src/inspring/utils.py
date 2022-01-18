@@ -12,7 +12,7 @@ import pandas
 import numpy
 from osgeo import gdal
 from osgeo import osr
-import pygeoprocessing
+from ecoshard import geoprocessing
 
 
 LOGGER = logging.getLogger(__name__)
@@ -339,7 +339,7 @@ def exponential_decay_kernel_raster(expected_distance, kernel_filepath):
     kernel_band.FlushCache()
     kernel_dataset.FlushCache()
 
-    for block_data in pygeoprocessing.iterblocks(
+    for block_data in geoprocessing.iterblocks(
             (kernel_filepath, 1), offset_only=True):
         kernel_block = kernel_band.ReadAsArray(**block_data)
         kernel_block /= integration
