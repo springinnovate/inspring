@@ -35,7 +35,6 @@ _OUTPUT_BASE_FILES = {
     'stream_and_drainage_path': 'stream_and_drainage.tif',
     'stream_path': 'stream.tif',
     'usle_path': 'usle.tif',
-    'watershed_results_sdr_path': 'watershed_results_sdr.shp',
     }
 
 _INTERMEDIATE_BASE_FILES = {
@@ -579,17 +578,6 @@ def execute(args):
             rkls_task, usle_task, drainage_raster_path_task[1], sdr_task,
             sdr_bare_task],
         task_name='calculate sediment retention')
-
-    _ = task_graph.add_task(
-        func=_generate_report,
-        args=(
-            args['watersheds_path'], f_reg['usle_path'],
-            f_reg['sed_export_path'], f_reg['sed_retention_path'],
-            f_reg['sed_deposition_path'], f_reg['watershed_results_sdr_path']),
-        target_path_list=[f_reg['watershed_results_sdr_path']],
-        dependent_task_list=[
-            usle_task, sed_export_task, sed_retention_task],
-        task_name='generate report')
 
     task_graph.close()
     task_graph.join()
@@ -1248,43 +1236,3 @@ def _calculate_sed_retention(
             rkls_path, usle_path, stream_path, sdr_path, sdr_bare_soil_path]],
         sediment_retention_bare_soil_op, out_sed_ret_bare_soil_path,
         gdal.GDT_Float32, _TARGET_NODATA)
-
-
-def _generate_report(
-        watersheds_path, usle_path, sed_export_path, sed_retention_path,
-        sed_deposition_path, watershed_results_sdr_path):
-    """Create shapefile with USLE, sed export, retention, and deposition."""
-    original_datasource = gdal.OpenEx(watersheds_path, gdal.OF_VECTOR)
-    driver = gdal.GetDriverByName('ESRI Shapefile')
-    target_vector = driver.CreateCopy(
-        watershed_results_sdr_path, original_datasource)
-    target_layer = target_vector.GetLayer()
-    target_layer.SyncToDisk()
-
-    field_summaries = {
-        'usle_tot': geoprocessing.zonal_statistics(
-            (usle_path, 1), watershed_results_sdr_path),
-        'sed_export': geoprocessing.zonal_statistics(
-            (sed_export_path, 1), watershed_results_sdr_path),
-        'sed_retent': geoprocessing.zonal_statistics(
-            (sed_retention_path, 1), watershed_results_sdr_path),
-        'sed_dep': geoprocessing.zonal_statistics(
-            (sed_deposition_path, 1), watershed_results_sdr_path),
-        }
-
-    for field_name in field_summaries:
-        field_def = ogr.FieldDefn(field_name, ogr.OFTReal)
-        field_def.SetWidth(24)
-        field_def.SetPrecision(11)
-        target_layer.CreateField(field_def)
-
-    target_layer.ResetReading()
-    for feature in target_layer:
-        feature_id = feature.GetFID()
-        for field_name in field_summaries:
-            feature.SetField(
-                field_name,
-                float(field_summaries[field_name][feature_id]['sum']))
-        target_layer.SetFeature(feature)
-    target_vector = None
-    target_layer = None
