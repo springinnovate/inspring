@@ -583,6 +583,23 @@ def execute(args):
     task_graph.join()
 
 
+def _calculate_wishmeier_smith_ls():
+    """."""
+    pass
+     # {   // Wischmeier and Smith
+     #    if( Slope > 0.0505 )    // >  ca. 3°
+     #    {
+     #        LS  = sqrt(SCA / 22.13)
+     #            * (65.41 * sin_Slope * sin_Slope + 4.56 * sin_Slope + 0.065);
+     #    }
+     #    else                    // <= ca. 3°
+     #    {
+     #        LS  = pow (SCA / 22.13, 3. * pow(Slope, 0.6))
+     #            * (65.41 * sin_Slope * sin_Slope + 4.56 * sin_Slope + 0.065);
+     #    }
+     #    break; }
+
+
 def _calculate_ls_factor(
         flow_accumulation_path, slope_path, aspect_path, l_cap,
         out_ls_factor_path):
@@ -651,7 +668,72 @@ def _calculate_ls_factor(
             10.8 * numpy.sin(slope_in_radians) + 0.03,
             16.8 * numpy.sin(slope_in_radians) - 0.5)
 
-        beta = (
+        beta = erosivity*(
+            (numpy.sin(slope_in_radians) / 0.0896) /
+            (3 * numpy.sin(slope_in_radians)**0.8 + 0.56))
+
+        # Set m value via lookup table: Table 1 in
+        # InVEST Sediment Model_modifications_10-01-2012_RS.docx
+        # note slope_table in percent
+        slope_table = numpy.array([1., 3.5, 5., 9.])
+        m_table = numpy.array([0.2, 0.3, 0.4, 0.5])
+        # mask where slopes are larger than lookup table
+        big_slope_mask = percent_slope[valid_mask] > slope_table[-1]
+        m_indexes = numpy.digitize(
+            percent_slope[valid_mask][~big_slope_mask], slope_table,
+            right=True)
+        m_exp = numpy.empty(big_slope_mask.shape, dtype=numpy.float32)
+        m_exp[big_slope_mask] = (
+            beta[big_slope_mask] / (1 + beta[big_slope_mask]))
+        m_exp[~big_slope_mask] = m_table[m_indexes]
+
+        l_factor = (
+            ((contributing_area + cell_area)**(m_exp+1) -
+             contributing_area ** (m_exp+1)) /
+            ((cell_size ** (m_exp + 2)) * (xij**m_exp) * (22.13**m_exp)))
+
+        # ensure l_factor is no larger than l_cap
+        l_factor[l_factor > l_cap] = l_cap
+        result[valid_mask] = l_factor * slope_factor
+        return result
+
+    def ls_factor_function(
+            aspect_angle, percent_slope, flow_accumulation, l_cap):
+        """Calculate the LS factor.
+
+        Parameters:
+            aspect_angle (numpy.ndarray): flow direction in radians
+            percent_slope (numpy.ndarray): slope in percent
+            flow_accumulation (numpy.ndarray): upstream pixels
+            l_cap (float): set the upstream area to be no greater than the
+                square of this number. This is the "McCool l factor cap".
+
+        Returns:
+            ls_factor
+
+        """
+        valid_mask = (
+            (aspect_angle != aspect_nodata) &
+            (percent_slope != slope_nodata) &
+            (flow_accumulation != flow_accumulation_nodata))
+        result = numpy.empty(valid_mask.shape, dtype=numpy.float32)
+        result[:] = _TARGET_NODATA
+
+        # Determine the length of the flow path on the pixel
+        xij = (numpy.abs(numpy.sin(aspect_angle[valid_mask])) +
+               numpy.abs(numpy.cos(aspect_angle[valid_mask])))
+
+        contributing_area = (flow_accumulation[valid_mask]-1) * cell_area
+        slope_in_radians = numpy.arctan(percent_slope[valid_mask] / 100.0)
+
+        # From Equation 4 in "Extension and validation of a geographic
+        # information system ..."
+        slope_factor = numpy.where(
+            percent_slope[valid_mask] < 9.0,
+            10.8 * numpy.sin(slope_in_radians) + 0.03,
+            16.8 * numpy.sin(slope_in_radians) - 0.5)
+
+        beta = erosivity*(
             (numpy.sin(slope_in_radians) / 0.0896) /
             (3 * numpy.sin(slope_in_radians)**0.8 + 0.56))
 
