@@ -3,12 +3,6 @@ import numpy
 from setuptools.extension import Extension
 from setuptools import setup
 
-# Read in requirements.txt and populate the python readme with the non-comment
-# contents.
-_REQUIREMENTS = [
-    x for x in open('requirements.txt').read().split('\n')
-    if not x.startswith('#') and len(x) > 0 and not x.startswith('git+https')]
-
 setup(
     name='inspring',
     description="InSPRING: Computational Environment for experimental InVEST",
@@ -28,7 +22,6 @@ setup(
         'local_scheme': 'node-and-date'},
     setup_requires=['setuptools_scm', 'cython', 'numpy'],
     include_package_data=True,
-    install_requires=_REQUIREMENTS,
     license='BSD',
     zip_safe=False,
     keywords='gis inspring',
