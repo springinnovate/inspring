@@ -12,7 +12,7 @@ from osgeo import ogr
 from osgeo import osr
 import numpy
 import scipy.optimize
-import taskgraph
+from ecoshard import taskgraph
 
 from . import utils
 

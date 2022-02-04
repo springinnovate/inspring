@@ -5,7 +5,7 @@ import logging
 import multiprocessing
 import os
 import shutil
-import taskgraph
+from ecoshard import taskgraph
 import tempfile
 import time
 
