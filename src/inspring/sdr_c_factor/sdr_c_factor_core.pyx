@@ -3,11 +3,11 @@
 import logging
 import os
 
+from ecoshard import geoprocessing
+from osgeo import gdal
 import numpy
-import pygeoprocessing
 cimport numpy
 cimport cython
-from osgeo import gdal
 
 from cpython.mem cimport PyMem_Malloc, PyMem_Free
 from cython.operator cimport dereference as deref
@@ -57,7 +57,7 @@ cdef extern from "LRUCache.h" nogil:
 ctypedef pair[int, double*] BlockBufferPair
 
 # a class to allow fast random per-pixel access to a raster for both setting
-# and reading pixels.  Copied from src/pygeoprocessing/routing/routing.pyx,
+# and reading pixels.  Copied from src/geoprocessing/routing/routing.pyx,
 # revision 891288683889237cfd3a3d0a1f09483c23489fca.
 cdef class _ManagedRaster:
     cdef LRUCache[int, double*]* lru_cache
@@ -92,7 +92,7 @@ cdef class _ManagedRaster:
         Returns:
             None.
         """
-        raster_info = pygeoprocessing.get_raster_info(raster_path)
+        raster_info = geoprocessing.get_raster_info(raster_path)
         self.raster_x_size, self.raster_y_size = raster_info['raster_size']
         self.block_xsize, self.block_ysize = raster_info['block_size']
         self.block_xmod = self.block_xsize-1
@@ -356,7 +356,7 @@ def calculate_sediment_deposition(
 
         Parameters:
             mfd_flow_direction_path (string): a path to a raster with
-                pygeoprocessing.routing MFD flow direction values.
+                geoprocessing.routing MFD flow direction values.
             e_prime_path (string): path to a raster that shows sources of
                 sediment that wash off a pixel but do not reach the stream.
             f_path (string): path to a raster that shows the sediment flux
@@ -371,10 +371,10 @@ def calculate_sediment_deposition(
     """
     LOGGER.info('calculate sediment deposition')
     cdef float sediment_deposition_nodata = -1.0
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         mfd_flow_direction_path, target_sediment_deposition_path,
         gdal.GDT_Float32, [sediment_deposition_nodata])
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         mfd_flow_direction_path, f_path,
         gdal.GDT_Float32, [sediment_deposition_nodata])
 
@@ -390,12 +390,12 @@ def calculate_sediment_deposition(
     cdef int *inflow_offsets = [4, 5, 6, 7, 0, 1, 2, 3]
 
     cdef int n_cols, n_rows
-    flow_dir_info = pygeoprocessing.get_raster_info(mfd_flow_direction_path)
+    flow_dir_info = geoprocessing.get_raster_info(mfd_flow_direction_path)
     n_cols, n_rows = flow_dir_info['raster_size']
     cdef stack[int] processing_stack
-    cdef float sdr_nodata = pygeoprocessing.get_raster_info(
+    cdef float sdr_nodata = geoprocessing.get_raster_info(
         sdr_path)['nodata'][0]
-    cdef float e_prime_nodata = pygeoprocessing.get_raster_info(
+    cdef float e_prime_nodata = geoprocessing.get_raster_info(
         e_prime_path)['nodata'][0]
     cdef int col_index, row_index, win_xsize, win_ysize, xoff, yoff
     cdef int global_col, global_row, flat_index, j, k
@@ -408,7 +408,7 @@ def calculate_sediment_deposition(
     cdef float downstream_sdr_weighted_sum, sdr_i, sdr_j
     cdef float p_j, p_val
 
-    for offset_dict in pygeoprocessing.iterblocks(
+    for offset_dict in geoprocessing.iterblocks(
             (mfd_flow_direction_path, 1), offset_only=True, largest_block=0):
         win_xsize = offset_dict['win_xsize']
         win_ysize = offset_dict['win_ysize']
@@ -591,11 +591,11 @@ def calculate_average_aspect(
     LOGGER.info('Calculating average aspect')
 
     cdef float average_aspect_nodata = -1.0
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         mfd_flow_direction_path, target_average_aspect_path,
         gdal.GDT_Float32, [average_aspect_nodata], [average_aspect_nodata])
 
-    flow_direction_info = pygeoprocessing.get_raster_info(
+    flow_direction_info = geoprocessing.get_raster_info(
         mfd_flow_direction_path)
     cdef int mfd_flow_direction_nodata = flow_direction_info['nodata'][0]
     cdef int n_cols, n_rows
@@ -630,7 +630,7 @@ def calculate_average_aspect(
     # Find each non-nodata pixel and calculate proportional flow
     # Multiply proportional flow times the flow length x_d
     # write the final value to the raster.
-    for offset_dict in pygeoprocessing.iterblocks(
+    for offset_dict in geoprocessing.iterblocks(
             (mfd_flow_direction_path, 1), offset_only=True, largest_block=0):
         win_xsize = offset_dict['win_xsize']
         win_ysize = offset_dict['win_ysize']
