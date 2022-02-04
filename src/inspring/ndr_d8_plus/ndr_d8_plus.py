@@ -1,13 +1,12 @@
 """Primary script for NDR plus."""
 import logging
 import os
-import shutil
 import tempfile
 import warnings
 
 from osgeo import gdal
 from osgeo import osr
-import pygeoprocessing
+from ecoshard import geoprocessing
 import numpy
 
 from inspring.ndr_d8_plus import ndr_d8_plus_cython
@@ -21,7 +20,7 @@ def mult_arrays(
         target_raster_path, gdal_type, target_nodata, raster_path_list):
     """Multiply arrays and be careful of nodata values."""
     nodata_array = numpy.array([
-        pygeoprocessing.get_raster_info(path)['nodata'][0]
+        geoprocessing.get_raster_info(path)['nodata'][0]
         for path in raster_path_list])
 
     def _mult_arrays(*array_list):
@@ -44,7 +43,7 @@ def mult_arrays(
                 'values: %s', array_list)
             raise
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in raster_path_list], _mult_arrays,
         target_raster_path, gdal_type, target_nodata)
 
@@ -89,7 +88,7 @@ def calculate_ndr(downstream_ret_eff_path, ic_path, k_val, target_ndr_path):
                     ic_path)
                 raise
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(downstream_ret_eff_path, 1), (ic_path, 1)], ndr_op, target_ndr_path,
         gdal.GDT_Float32, NODATA)
 
@@ -107,13 +106,13 @@ def modified_load(
     Return:
         None
     """
-    load_raster_info = pygeoprocessing.get_raster_info(load_raster_path)
-    runoff_nodata = pygeoprocessing.get_raster_info(
+    load_raster_info = geoprocessing.get_raster_info(load_raster_path)
+    runoff_nodata = geoprocessing.get_raster_info(
         runoff_proxy_path)['nodata'][0]
     runoff_sum = 0.0
     runoff_count = 0
 
-    for _, raster_block in pygeoprocessing.iterblocks(
+    for _, raster_block in geoprocessing.iterblocks(
             (runoff_proxy_path, 1)):
         # this complicated call ensures we don't end up with some garbage
         # precipitation value like what we're getting with
@@ -156,7 +155,7 @@ def modified_load(
                     result[valid_mask], load_raster_path, runoff_proxy_path)
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(load_raster_path, 1), (runoff_proxy_path, 1)], _modified_load_op,
         target_modified_load_path, gdal.GDT_Float32, NODATA)
 
@@ -178,7 +177,7 @@ def calculate_ag_load(
     Return:
         None
     """
-    load_raster_info = pygeoprocessing.get_raster_info(
+    load_raster_info = geoprocessing.get_raster_info(
         ag_load_raster_path)
     load_nodata = load_raster_info['nodata'][0]
 
@@ -195,10 +194,10 @@ def calculate_ag_load(
         result[ag_mask & nodata_load_mask] = 0.0
         return result
 
-    nodata = pygeoprocessing.get_raster_info(
+    nodata = geoprocessing.get_raster_info(
         load_n_per_ha_raster_path)['nodata'][0]
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(load_n_per_ha_raster_path, 1), (ag_load_raster_path, 1)],
         ag_load_op, target_ag_load_path,
         gdal.GDT_Float32, nodata)
@@ -242,8 +241,8 @@ def _mult_by_scalar_op(array, scalar, nodata, target_nodata):
 def mult_by_scalar_func(
         raster_path, scalar, target_nodata, target_path):
     """Multiply raster by scalar."""
-    nodata = pygeoprocessing.get_raster_info(raster_path)['nodata'][0]
-    pygeoprocessing.raster_calculator(
+    nodata = geoprocessing.get_raster_info(raster_path)['nodata'][0]
+    geoprocessing.raster_calculator(
         [(raster_path, 1), (scalar, 'raw'), (nodata, 'raw'),
          (target_nodata, 'raw')], _mult_by_scalar_op, target_path,
         gdal.GDT_Float32, target_nodata)
@@ -260,8 +259,8 @@ def clamp_op(array, threshold_val, nodata):
 
 def clamp_func(raster_path, threshold_val, target_path):
     """Clamp values that exeed ``threshold val`` in ``raster_path```."""
-    nodata = pygeoprocessing.get_raster_info(raster_path)['nodata'][0]
-    pygeoprocessing.raster_calculator(
+    nodata = geoprocessing.get_raster_info(raster_path)['nodata'][0]
+    geoprocessing.raster_calculator(
         [(raster_path, 1), (threshold_val, 'raw'), (nodata, 'raw')],
         clamp_op, target_path, gdal.GDT_Float32, nodata)
 
@@ -295,9 +294,9 @@ def d_up_op_func(
     Return:
         None
     """
-    flow_accum_nodata = pygeoprocessing.get_raster_info(
+    flow_accum_nodata = geoprocessing.get_raster_info(
         flow_accum_raster_path)['nodata'][0]
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(slope_accum_raster_path, 1),
          (flow_accum_raster_path, 1), (pixel_area, 'raw'),
          (flow_accum_nodata, 'raw')], _d_up_op,
@@ -306,11 +305,11 @@ def d_up_op_func(
 
 def add_outlets_to_channel_raster(d8_flow_dir_path, channel_raster_path):
     """Add outlets to an existing channel raster path."""
-    channel_info = pygeoprocessing.get_raster_info(channel_raster_path)
+    channel_info = geoprocessing.get_raster_info(channel_raster_path)
     workspace_dir = tempfile.mkdtemp(
         dir=os.path.dirname(channel_raster_path))
     outlet_vector_path = os.path.join(workspace_dir, 'outlets.gpkg')
-    pygeoprocessing.routing.detect_outlets(
+    geoprocessing.routing.detect_outlets(
         (d8_flow_dir_path, 1), outlet_vector_path)
 
     inv_gt = gdal.InvGeoTransform(channel_info['geotransform'])
@@ -348,7 +347,7 @@ def threshold_flow_accumulation(
     Return:
         None
     """
-    nodata = pygeoprocessing.get_raster_info(flow_accum_path)['nodata'][0]
+    nodata = geoprocessing.get_raster_info(flow_accum_path)['nodata'][0]
     channel_nodata = 2
 
     def threshold_op(flow_val, threshold_val):
@@ -358,7 +357,7 @@ def threshold_flow_accumulation(
         result[valid_mask] = flow_val[valid_mask] >= threshold_val
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(flow_accum_path, 1), (flow_threshold, 'raw')], threshold_op,
         target_channel_path, gdal.GDT_Byte, channel_nodata)
 
@@ -443,7 +442,7 @@ def ndr_plus(
         watershed_geometry.GetEnvelope()[i] for i in [0, 2, 1, 3]]
 
     # make sure the bounding coordinates snap to pixel grid in global coords
-    dem_info = pygeoprocessing.get_raster_info(dem_path)
+    dem_info = geoprocessing.get_raster_info(dem_path)
     base_cell_length_deg = dem_info['pixel_size'][0]
     LOGGER.debug(f'base watershed_bb: {watershed_bb}')
     watershed_bb[0] -= watershed_bb[0] % base_cell_length_deg
@@ -452,7 +451,7 @@ def ndr_plus(
     watershed_bb[3] += watershed_bb[3] % base_cell_length_deg
 
     target_bounding_box = [
-        round(v) for v in pygeoprocessing.transform_bounding_box(
+        round(v) for v in geoprocessing.transform_bounding_box(
             watershed_bb, watershed_layer.GetSpatialRef().ExportToWkt(),
             utm_srs.ExportToWkt())]
 
@@ -481,7 +480,7 @@ def ndr_plus(
         f'\naligned_path_list: {aligned_path_list}'
         f'\nwatershed_path: {watershed_path} {watershed_fid}')
     try:
-        pygeoprocessing.align_and_resize_raster_stack(
+        geoprocessing.align_and_resize_raster_stack(
             base_raster_path_list, aligned_path_list,
             interpolation_mode_list,
             (target_cell_length_m, -target_cell_length_m),
@@ -500,24 +499,24 @@ def ndr_plus(
     filled_dem_path = os.path.join(workspace_dir, 'dem_filled.tif')
     flow_dir_path = os.path.join(workspace_dir, 'flow_dir.tif')
 
-    pygeoprocessing.routing.fill_pits(
+    geoprocessing.routing.fill_pits(
         (aligned_dem_path, 1), filled_dem_path,
         working_dir=workspace_dir,
         max_pixel_fill_count=max_pixel_fill_count)
 
-    pygeoprocessing.routing.flow_dir_d8(
+    geoprocessing.routing.flow_dir_d8(
         (filled_dem_path, 1), flow_dir_path,
         working_dir=workspace_dir)
 
     # flow accum dem
     flow_accum_path = os.path.join(
         workspace_dir, 'flow_accum.tif')
-    pygeoprocessing.routing.flow_accumulation_d8(
+    geoprocessing.routing.flow_accumulation_d8(
         (flow_dir_path, 1), flow_accum_path)
 
     # calculate slope
     slope_raster_path = os.path.join(workspace_dir, 'slope.tif')
-    pygeoprocessing.calculate_slope(
+    geoprocessing.calculate_slope(
         (filled_dem_path, 1), slope_raster_path)
 
     clamp_slope_raster_path = os.path.join(workspace_dir, 'clamp_slope.tif')
@@ -526,7 +525,7 @@ def ndr_plus(
     # calculate D_up
     slope_accum_watershed_dem_path = os.path.join(
         workspace_dir, 's_accum.tif')
-    pygeoprocessing.routing.flow_accumulation_d8(
+    geoprocessing.routing.flow_accumulation_d8(
         (flow_dir_path, 1), slope_accum_watershed_dem_path,
         weight_raster_path_band=(clamp_slope_raster_path, 1))
 
@@ -547,7 +546,7 @@ def ndr_plus(
     # calculate flow path in pixels length down to stream
     pixel_flow_length_raster_path = os.path.join(
         workspace_dir, 'pixel_flow_length.tif')
-    pygeoprocessing.routing.distance_to_channel_d8(
+    geoprocessing.routing.distance_to_channel_d8(
         (flow_dir_path, 1), (channel_path, 1), pixel_flow_length_raster_path)
 
     # calculate real flow_path (flow length * pixel size)
@@ -560,31 +559,31 @@ def ndr_plus(
     # calculate downstream distance / downstream slope
     d_dn_per_pixel_path = os.path.join(
         workspace_dir, 'd_dn_per_pixel.tif')
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(downstream_flow_distance_path, 1), (clamp_slope_raster_path, 1)],
         div_arrays, d_dn_per_pixel_path, gdal.GDT_Float32, NODATA)
 
     # calculate D_dn: downstream sum of distance / downstream slope
     d_dn_raster_path = os.path.join(
         workspace_dir, 'd_dn.tif')
-    pygeoprocessing.routing.distance_to_channel_d8(
+    geoprocessing.routing.distance_to_channel_d8(
         (flow_dir_path, 1), (channel_path, 1), d_dn_raster_path,
         weight_raster_path_band=(d_dn_per_pixel_path, 1))
 
     # calculate IC
     ic_path = os.path.join(workspace_dir, 'ic.tif')
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(d_up_raster_path, 1), (d_dn_raster_path, 1)], calc_ic, ic_path,
         gdal.GDT_Float32, NODATA)
 
     eff_n_raster_path = os.path.join(workspace_dir, 'eff_n.tif')
-    pygeoprocessing.reclassify_raster(
+    geoprocessing.reclassify_raster(
         (aligned_lulc_path, 1), eff_n_lucode_map,
         eff_n_raster_path, gdal.GDT_Float32, NODATA)
 
     load_n_per_ha_raster_path = os.path.join(
         workspace_dir, 'load_n_per_ha.tif')
-    pygeoprocessing.reclassify_raster(
+    geoprocessing.reclassify_raster(
         (aligned_lulc_path, 1), load_n_lucode_map,
         load_n_per_ha_raster_path, gdal.GDT_Float32, NODATA)
 

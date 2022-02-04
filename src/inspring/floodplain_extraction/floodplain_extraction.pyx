@@ -35,8 +35,8 @@ from shapely.ops import unary_union
 import scipy.optimize
 import scipy.stats
 
-import pygeoprocessing
-from pygeoprocessing.geoprocessing_core import DEFAULT_OSR_AXIS_MAPPING_STRATEGY
+from ecoshard import geoprocessing
+from ecoshard.geoprocessing.geoprocessing_core import DEFAULT_OSR_AXIS_MAPPING_STRATEGY
 
 LOGGER = logging.getLogger(__name__)
 
@@ -99,7 +99,7 @@ cdef class _ManagedRaster:
         if not os.path.isfile(raster_path):
             LOGGER.error("%s is not a file.", raster_path)
             return
-        raster_info = pygeoprocessing.get_raster_info(raster_path)
+        raster_info = geoprocessing.get_raster_info(raster_path)
         self.raster_x_size, self.raster_y_size = raster_info['raster_size']
         self.block_xsize, self.block_ysize = raster_info['block_size']
         self.block_xmod = self.block_xsize-1
@@ -525,7 +525,7 @@ def build_gauge_stats(
     gauge_df = pandas.read_csv(stream_gauge_table_path)
     gauge_vector = gdal.OpenEx(gauge_vector_path, gdal.OF_VECTOR)
     gauge_layer = gauge_vector.GetLayer()
-    flow_accum_raster_info = pygeoprocessing.get_raster_info(
+    flow_accum_raster_info = geoprocessing.get_raster_info(
         flow_accum_path)
     cell_area = abs(numpy.prod(flow_accum_raster_info['pixel_size']))
     flow_accum_raster = gdal.OpenEx(flow_accum_path)
@@ -587,7 +587,7 @@ def _stitch_worker(
         if len(current_stitch_list) == batch_size or payload is None:
             LOGGER.info(
                 f'stitching a batch of size {len(current_stitch_list)}')
-            pygeoprocessing.stitch_rasters(
+            geoprocessing.stitch_rasters(
                 current_stitch_list,
                 ['near']*len(current_stitch_list),
                 (target_stitch_raster_path, 1),
@@ -609,7 +609,7 @@ def _subwatershed_worker(
     subwatershed_vector = gdal.OpenEx(
         subwatershed_vector_path, gdal.OF_VECTOR)
     subwatershed_layer = subwatershed_vector.GetLayer()
-    dem_raster_info = pygeoprocessing.get_raster_info(dem_raster_path)
+    dem_raster_info = geoprocessing.get_raster_info(dem_raster_path)
     pixel_size = dem_raster_info['pixel_size']
     cell_area = abs(numpy.prod(pixel_size))
     dem_nodata = dem_raster_info['nodata'][0]
@@ -651,7 +651,7 @@ def _subwatershed_worker(
                 (2, pixel_size[1]),
                 (1, pixel_size[0]),
                 (3, -pixel_size[1])]]
-        pygeoprocessing.warp_raster(
+        geoprocessing.warp_raster(
             dem_raster_path, pixel_size,
             subwatershed_dem_path, 'near', target_bb=subwatershed_bounds,
             vector_mask_options={
@@ -671,7 +671,7 @@ def _subwatershed_worker(
 
         flood_height_raster_path = os.path.join(
             working_dir, f'{subwatershed_fid}_flood_height.tif')
-        pygeoprocessing.raster_calculator(
+        geoprocessing.raster_calculator(
             [(subwatershed_dem_path, 1),
              (local_flood_height, 'raw'),
              (dem_nodata, 'raw')], _flood_height_op,
@@ -704,9 +704,9 @@ def calculate_floodheight(
         ogr.FieldDefn('outlet_dem_val', ogr.OFTReal))
     subwatershed_layer.CreateField(
         ogr.FieldDefn('local_flood_height', ogr.OFTReal))
-    dem_raster_info = pygeoprocessing.get_raster_info(dem_raster_path)
+    dem_raster_info = geoprocessing.get_raster_info(dem_raster_path)
     dem_nodata = dem_raster_info['nodata'][0]
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         dem_raster_path, target_floodplain_raster_path,
         dem_raster_info['datatype'], [dem_nodata])
     manager = multiprocessing.Manager()
@@ -844,7 +844,7 @@ def floodplain_extraction(
     Return:
         None.
     """
-    dem_info = pygeoprocessing.get_raster_info(dem_path)
+    dem_info = geoprocessing.get_raster_info(dem_path)
     dem_type = dem_info['numpy_type']
     working_dir = os.path.join(
         os.path.dirname(target_floodplain_raster_path),
@@ -860,7 +860,7 @@ def floodplain_extraction(
     task_graph = taskgraph.TaskGraph(working_dir, -1)
 
     scrub_dem_task = task_graph.add_task(
-        func=pygeoprocessing.raster_calculator,
+        func=geoprocessing.raster_calculator,
         args=(
             [(dem_path, 1), (nodata, 'raw'), (new_nodata, 'raw')],
             _scrub_invalid_values, scrubbed_dem_path,
@@ -871,7 +871,7 @@ def floodplain_extraction(
     LOGGER.info('fill pits')
     filled_pits_path = os.path.join(working_dir, 'filled_pits_dem.tif')
     fill_pits_task = task_graph.add_task(
-        func=pygeoprocessing.routing.fill_pits,
+        func=geoprocessing.routing.fill_pits,
         args=((scrubbed_dem_path, 1), filled_pits_path),
         kwargs={'max_pixel_fill_count': 1000000},
         target_path_list=[filled_pits_path],
@@ -881,7 +881,7 @@ def floodplain_extraction(
     LOGGER.info('flow dir d8')
     flow_dir_d8_path = os.path.join(working_dir, 'flow_dir_d8.tif')
     flow_dir_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_d8,
+        func=geoprocessing.routing.flow_dir_d8,
         args=((filled_pits_path, 1), flow_dir_d8_path),
         kwargs={'working_dir': working_dir},
         target_path_list=[flow_dir_d8_path],
@@ -891,7 +891,7 @@ def floodplain_extraction(
     LOGGER.info('flow accum d8')
     flow_accum_d8_path = os.path.join(working_dir, 'flow_accum_d8.tif')
     flow_accum_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_d8,
+        func=geoprocessing.routing.flow_accumulation_d8,
         args=((flow_dir_d8_path, 1), flow_accum_d8_path),
         target_path_list=[flow_accum_d8_path],
         dependent_task_list=[flow_dir_task],
@@ -899,7 +899,7 @@ def floodplain_extraction(
 
     target_stream_vector_path
     extract_stream_task = task_graph.add_task(
-        func=pygeoprocessing.routing.extract_strahler_streams_d8,
+        func=geoprocessing.routing.extract_strahler_streams_d8,
         args=(
             (flow_dir_d8_path, 1), (flow_accum_d8_path, 1),
             (filled_pits_path, 1), target_stream_vector_path),
@@ -933,7 +933,7 @@ def floodplain_extraction(
 
     if not os.path.exists(target_watershed_boundary_vector_path):
         calculate_watershed_boundary_task = task_graph.add_task(
-            func=pygeoprocessing.routing.calculate_subwatershed_boundary,
+            func=geoprocessing.routing.calculate_subwatershed_boundary,
             args=(
                 (flow_dir_d8_path, 1), target_stream_vector_path,
                 target_watershed_boundary_vector_path),
@@ -986,7 +986,7 @@ def floodplain_extraction_custom_power_params(
     Return:
         None.
     """
-    dem_info = pygeoprocessing.get_raster_info(dem_path)
+    dem_info = geoprocessing.get_raster_info(dem_path)
     dem_type = dem_info['numpy_type']
     working_dir = os.path.join(
         os.path.dirname(target_floodplain_raster_path),
@@ -999,7 +999,7 @@ def floodplain_extraction_custom_power_params(
     task_graph = taskgraph.TaskGraph(working_dir, -1)
 
     scrub_dem_task = task_graph.add_task(
-        func=pygeoprocessing.raster_calculator,
+        func=geoprocessing.raster_calculator,
         args=(
             [(dem_path, 1), (nodata, 'raw'), (new_nodata, 'raw')],
             _scrub_invalid_values, scrubbed_dem_path,
@@ -1010,7 +1010,7 @@ def floodplain_extraction_custom_power_params(
     LOGGER.info('fill pits')
     filled_pits_path = os.path.join(working_dir, 'filled_pits_dem.tif')
     fill_pits_task = task_graph.add_task(
-        func=pygeoprocessing.routing.fill_pits,
+        func=geoprocessing.routing.fill_pits,
         args=((scrubbed_dem_path, 1), filled_pits_path),
         kwargs={'max_pixel_fill_count': 1000000},
         target_path_list=[filled_pits_path],
@@ -1020,7 +1020,7 @@ def floodplain_extraction_custom_power_params(
     LOGGER.info('flow dir d8')
     flow_dir_d8_path = os.path.join(working_dir, 'flow_dir_d8.tif')
     flow_dir_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_d8,
+        func=geoprocessing.routing.flow_dir_d8,
         args=((filled_pits_path, 1), flow_dir_d8_path),
         kwargs={'working_dir': working_dir},
         target_path_list=[flow_dir_d8_path],
@@ -1030,7 +1030,7 @@ def floodplain_extraction_custom_power_params(
     LOGGER.info('flow accum d8')
     flow_accum_d8_path = os.path.join(working_dir, 'flow_accum_d8.tif')
     flow_accum_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_d8,
+        func=geoprocessing.routing.flow_accumulation_d8,
         args=((flow_dir_d8_path, 1), flow_accum_d8_path),
         target_path_list=[flow_accum_d8_path],
         dependent_task_list=[flow_dir_task],
@@ -1038,7 +1038,7 @@ def floodplain_extraction_custom_power_params(
 
     target_stream_vector_path
     extract_stream_task = task_graph.add_task(
-        func=pygeoprocessing.routing.extract_strahler_streams_d8,
+        func=geoprocessing.routing.extract_strahler_streams_d8,
         args=(
             (flow_dir_d8_path, 1), (flow_accum_d8_path, 1),
             (filled_pits_path, 1), target_stream_vector_path),
@@ -1052,7 +1052,7 @@ def floodplain_extraction_custom_power_params(
 
     if not os.path.exists(target_watershed_boundary_vector_path):
         calculate_watershed_boundary_task = task_graph.add_task(
-            func=pygeoprocessing.routing.calculate_subwatershed_boundary,
+            func=geoprocessing.routing.calculate_subwatershed_boundary,
             args=(
                 (flow_dir_d8_path, 1), target_stream_vector_path,
                 target_watershed_boundary_vector_path),

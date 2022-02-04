@@ -7,7 +7,7 @@ import tempfile
 import time
 
 import numpy
-import pygeoprocessing
+from ecoshard import geoprocessing
 from osgeo import gdal
 
 cimport numpy
@@ -92,7 +92,7 @@ cdef class _ManagedRaster:
         if not os.path.isfile(raster_path):
             LOGGER.error("%s is not a file.", raster_path)
             return
-        raster_info = pygeoprocessing.get_raster_info(raster_path)
+        raster_info = geoprocessing.get_raster_info(raster_path)
         self.raster_x_size, self.raster_y_size = raster_info['raster_size']
         self.block_xsize, self.block_ysize = raster_info['block_size']
         self.block_xmod = self.block_xsize-1
@@ -439,7 +439,7 @@ def calculate_downstream_ret_eff(
             dir=temp_dir_path, prefix='downstream_flow_length_',
             suffix=time.strftime('%Y-%m-%d_%H_%M_%S', time.gmtime()))
 
-        pygeoprocessing.new_raster_from_base(
+        geoprocessing.new_raster_from_base(
             flow_dir_raster_path_band[0],
             target_downstream_retention_raster_path, gdal.GDT_Float32,
             [_NODATA], fill_value_list=[_NODATA],
@@ -448,11 +448,11 @@ def calculate_downstream_ret_eff(
                 ('TILED=YES', 'BIGTIFF=YES', 'COMPRESS=LZW',
                  'BLOCKXSIZE=%d' % (1<<BLOCK_BITS),
                  'BLOCKYSIZE=%d' % (1<<BLOCK_BITS))))
-        cell_size = abs(pygeoprocessing.get_raster_info(
+        cell_size = abs(geoprocessing.get_raster_info(
             target_downstream_retention_raster_path)['pixel_size'][0])
 
         # these are used to determine if a sample is within the raster
-        flow_direction_raster_info = pygeoprocessing.get_raster_info(
+        flow_direction_raster_info = geoprocessing.get_raster_info(
             flow_dir_raster_path_band[0])
         flow_direction_nodata = flow_direction_raster_info['nodata'][
             flow_dir_raster_path_band[1]-1]
@@ -467,7 +467,7 @@ def calculate_downstream_ret_eff(
         ret_eff_managed_raster = _ManagedRaster(
             ret_eff_raster_path_band[0],
             ret_eff_raster_path_band[1], 0)
-        ret_eff_nodata = pygeoprocessing.get_raster_info(
+        ret_eff_nodata = geoprocessing.get_raster_info(
             ret_eff_raster_path_band[0])['nodata'][
                 ret_eff_raster_path_band[1]-1]
         downstream_retention_managed_raster = _ManagedRaster(
@@ -483,7 +483,7 @@ def calculate_downstream_ret_eff(
 
         LOGGER.info('finding drains')
         start_drain_time = time.time()
-        for offset_dict in pygeoprocessing.iterblocks(
+        for offset_dict in geoprocessing.iterblocks(
                 flow_dir_raster_path_band, offset_only=True,
                 largest_block=0):
             # statically type these for later
