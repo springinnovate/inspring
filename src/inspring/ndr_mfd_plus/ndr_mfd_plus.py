@@ -806,7 +806,7 @@ def _calculate_export(
     def _calculate_export_op(modified_load_array, ndr_array):
         """Combine NDR and subsurface NDR."""
         # these intermediate outputs should always have defined nodata
-        # values assigned by pygeoprocessing
+        # values assigned by geoprocessing
         valid_mask = ~(
             numpy.isclose(modified_load_array, load_nodata) |
             numpy.isclose(ndr_array, ndr_nodata))
@@ -833,7 +833,7 @@ def _calculate_retention(
     def _calculate_retention_op(modified_load_array, ndr_array):
         """Combine NDR and subsurface NDR."""
         # these intermediate outputs should always have defined nodata
-        # values assigned by pygeoprocessing
+        # values assigned by geoprocessing
         valid_mask = ~(
             numpy.isclose(modified_load_array, load_nodata) |
             numpy.isclose(ndr_array, ndr_nodata))

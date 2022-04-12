@@ -6,13 +6,13 @@ import logging
 import os
 import re
 
+from ecoshard import geoprocessing
 from osgeo import gdal
 from osgeo import ogr
 from osgeo import osr
-import pygeoprocessing
 import numpy
 import scipy.optimize
-import taskgraph
+from ecoshard import taskgraph
 
 from . import utils
 
@@ -185,7 +185,7 @@ class BoundedSigmoid(object):
 
 def _calculate_utm_wkt_region(base_raster_path):
     """Calculate which UTM zone the raster lies, return the WKT for it."""
-    raster_info = pygeoprocessing.get_raster_info(base_raster_path)
+    raster_info = geoprocessing.get_raster_info(base_raster_path)
     width, height = raster_info['raster_size']
     base_srs = osr.SpatialReference()
     base_srs.ImportFromWkt(raster_info['projection_wkt'])
@@ -210,10 +210,10 @@ def _calculate_utm_wkt_region(base_raster_path):
 def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
     """Resample base to a square utm raster."""
     target_srs_wkt = _calculate_utm_wkt_region(base_raster_path)
-    raster_info = pygeoprocessing.get_raster_info(base_raster_path)
+    raster_info = geoprocessing.get_raster_info(base_raster_path)
     width, height = raster_info['raster_size']
 
-    transformed_bb = pygeoprocessing.transform_bounding_box(
+    transformed_bb = geoprocessing.transform_bounding_box(
         raster_info['bounding_box'],
         raster_info['projection_wkt'],
         target_srs_wkt)
@@ -223,7 +223,7 @@ def _resample_to_utm(base_raster_path, target_raster_path, pixel_scale=1.0):
     pixel_length = min(pixel_x, pixel_y)
     target_pixel_size = (pixel_length*pixel_scale, -pixel_length*pixel_scale)
 
-    pygeoprocessing.warp_raster(
+    geoprocessing.warp_raster(
         base_raster_path, target_pixel_size, target_raster_path, 'mode',
         target_projection_wkt=target_srs_wkt,
         working_dir=os.path.dirname(target_raster_path))
@@ -244,7 +244,7 @@ def _create_wddi(weighted_eft_raster_list, target_wddi_raster_path):
     Returns:
         None
     """
-    nodata = pygeoprocessing.get_raster_info(
+    nodata = geoprocessing.get_raster_info(
         weighted_eft_raster_list[0])['nodata'][0]
     n_types = len(weighted_eft_raster_list)
 
@@ -280,7 +280,7 @@ def _create_wddi(weighted_eft_raster_list, target_wddi_raster_path):
         result[result > n_types**2] = 0.0
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in weighted_eft_raster_list], _wddi_op,
         target_wddi_raster_path, gdal.GDT_Float32, nodata)
 
@@ -298,7 +298,7 @@ def _mask_raster(base_raster_path, unique_value, target_raster_path):
     Returns:
         None
     """
-    nodata = pygeoprocessing.get_raster_info(base_raster_path)['nodata'][0]
+    nodata = geoprocessing.get_raster_info(base_raster_path)['nodata'][0]
     local_nodata = 2
 
     def _mask_op(base_array):
@@ -310,7 +310,7 @@ def _mask_raster(base_raster_path, unique_value, target_raster_path):
         result[~numpy.isfinite(base_array)] = local_nodata
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(base_raster_path, 1)], _mask_op, target_raster_path,
         gdal.GDT_Byte, local_nodata)
 
@@ -318,7 +318,7 @@ def _mask_raster(base_raster_path, unique_value, target_raster_path):
 def _get_unique_values(raster_path):
     """Return set of unique values in the single band raster path."""
     unique_value_set = set()
-    for _, raster_block in pygeoprocessing.iterblocks((raster_path, 1)):
+    for _, raster_block in geoprocessing.iterblocks((raster_path, 1)):
         unique_values = numpy.unique(
             raster_block[numpy.isfinite(raster_block)])
         unique_value_set.update(unique_values)
@@ -425,7 +425,7 @@ def execute(args):
         # TypeError when n_workers is None.
         n_workers = -1  # Synchronous mode.
     task_graph = taskgraph.TaskGraph(work_token_dir, n_workers)
-    eft_raster_info = pygeoprocessing.get_raster_info(
+    eft_raster_info = geoprocessing.get_raster_info(
         args['eft_raster_path'])
 
     # process the EFT raster so pixels are square and desired resolution
@@ -443,7 +443,7 @@ def execute(args):
         # ensure farm vector is in the same projection as the eft map
         reproject_farm_task = task_graph.add_task(
             task_name='reproject_farm_task',
-            func=pygeoprocessing.reproject_vector,
+            func=geoprocessing.reproject_vector,
             args=(
                 args['farm_vector_path'],
                 _calculate_utm_wkt_region(args['eft_raster_path']),
@@ -477,7 +477,7 @@ def execute(args):
         store_result=True,
         task_name='get unique values from {eft_clip_raster_path}')
     eft_code_list.join()
-    eft_clip_raster_info = pygeoprocessing.get_raster_info(
+    eft_clip_raster_info = geoprocessing.get_raster_info(
         eft_clip_raster_path)
     mean_pixel_size = utils.mean_pixel_size_and_area(
         eft_clip_raster_info['pixel_size'])[0]
@@ -546,7 +546,7 @@ def execute(args):
                 eft_mask_raster_path, eft_mask_task = \
                     eft_to_raster_task_map[eft_code]
                 create_efd_weighted_task = task_graph.add_task(
-                    func=pygeoprocessing.convolve_2d,
+                    func=geoprocessing.convolve_2d,
                     args=(
                         (eft_mask_raster_path, 1), (kernel_path, 1),
                         eft_weighted_path),
@@ -581,7 +581,7 @@ def execute(args):
                 f'{biophysical_type}_efd_sufficient'][species]
 
             biophysical_task = task_graph.add_task(
-                func=pygeoprocessing.raster_calculator,
+                func=geoprocessing.raster_calculator,
                 args=(
                     [(wddi_raster_path, 1)],
                     BoundedSigmoid(efd_min, efd_sufficient),
@@ -598,7 +598,7 @@ def execute(args):
                 species, file_suffix))
         pollinator_supply_task = task_graph.add_task(
             task_name=f'calculate pollinator supply {species}',
-            func=pygeoprocessing.raster_calculator,
+            func=geoprocessing.raster_calculator,
             args=(
                 [(resources_to_raster_task_map['floral_resources'][0], 1),
                  (resources_to_raster_task_map['nesting_suitability'][0], 1)],
@@ -614,7 +614,7 @@ def execute(args):
             intermediate_output_dir, _POLLINATOR_ABUNDANCE_FILE_PATTERN % (
                 species, file_suffix))
         abundance_task = task_graph.add_task(
-            func=pygeoprocessing.convolve_2d,
+            func=geoprocessing.convolve_2d,
             args=(
                 (pollinator_supply_index_path, 1),
                 (flight_kernel_path, 1),
@@ -640,7 +640,7 @@ def execute(args):
         args['workspace_dir'],
         _TOTAL_POLLINATOR_ABUNDANCE_FILE_PATTERN % file_suffix)
     global_abundance_task = task_graph.add_task(
-        func=pygeoprocessing.raster_calculator,
+        func=geoprocessing.raster_calculator,
         args=(
             [(_INDEX_NODATA, 'raw')] + abundance_path_weight_list,
             _weighted_average_op, global_pollinator_abundance_raster_path,
@@ -653,7 +653,7 @@ def execute(args):
         intermediate_output_dir, _BLANK_RASTER_FILE_PATTERN % file_suffix)
     blank_raster_task = task_graph.add_task(
         task_name='create_blank_raster',
-        func=pygeoprocessing.new_raster_from_base,
+        func=geoprocessing.new_raster_from_base,
         args=(
             eft_clip_raster_path, blank_raster_path, gdal.GDT_Float32,
             [_INDEX_NODATA]),
@@ -674,7 +674,7 @@ def execute(args):
         intermediate_output_dir, _FARM_POLLINATOR_FILE_PATTERN % file_suffix)
     task_graph.add_task(
         task_name='calculate on farm pollinator',
-        func=pygeoprocessing.raster_calculator,
+        func=geoprocessing.raster_calculator,
         args=(
             [(half_saturation_raster_path, 1),
              (global_pollinator_abundance_raster_path, 1)],
@@ -692,7 +692,7 @@ def execute(args):
         farm_vector_path, target_farm_result_path)
 
     # aggregate yield over a farm
-    total_farm_results = pygeoprocessing.zonal_statistics(
+    total_farm_results = geoprocessing.zonal_statistics(
         (global_pollinator_abundance_raster_path, 1),
         target_farm_result_path, polygons_might_overlap=False)
 
