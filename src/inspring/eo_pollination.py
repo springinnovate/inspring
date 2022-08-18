@@ -327,7 +327,7 @@ def _get_unique_values(raster_path):
 
 
 def execute(args):
-    """InVEST Pollination Model.
+    """Modified InVEST Pollination Model for EO.
 
     Args:
         args['workspace_dir'] (string): a path to the output workspace folder.
