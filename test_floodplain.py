@@ -27,15 +27,22 @@ def main():
     side_length = 1000
     dem_array = numpy.zeros((side_length, side_length))
 
-    dem_array[side_length // 4, side_length // 2] = side_length**2
-    dem_array[side_length // 2, side_length // 2] = side_length**2
-    dem_array[-1, side_length // 5] = side_length**2
-    dem_array += numpy.random.random((side_length, side_length))*side_length
-    dem_array = gaussian_filter(dem_array, side_length // 5)
+    n_peaks = 10
+    x = numpy.random.randint(0, side_length, n_peaks)
+    y = numpy.random.randint(0, side_length, n_peaks)
+    peak_height = numpy.random.randint(0, 10*side_length**2, n_peaks)
+    coord_list = [x, y]
+    print(coord_list)
+
+    #numpy.take(dem_array, numpy.ravel_multi_index(coord_list, dem_array.shape))
+    dem_array.flat[numpy.ravel_multi_index(coord_list, dem_array.shape)] = peak_height
+
+    dem_array = gaussian_filter(dem_array, side_length / 10)
+    dem_array += numpy.random.randint(0, 5, (side_length, side_length))
 
     working_dir = 'test_floodplain_workspace'
     os.makedirs(working_dir, exist_ok=True)
-    min_flow_accum_threshold = 10
+    min_flow_accum_threshold = 200
 
     target_stream_vector_path = os.path.join(working_dir, 'stream.gpkg')
     target_watershed_boundary_vector_path = os.path.join(

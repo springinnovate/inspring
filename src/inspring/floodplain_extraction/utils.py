@@ -31,7 +31,8 @@ def prep_floodplain_data(
     dem_info = geoprocessing.get_raster_info(dem_path)
     dem_type = dem_info['numpy_type']
     nodata = dem_info['nodata'][0]
-    if isinstance(dem_type, float):
+
+    if issubclass(dem_type, float):
         new_nodata = float(numpy.finfo(dem_type).min)
     else:
         new_nodata = int(numpy.iinfo(dem_type).min)
