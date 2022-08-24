@@ -24,6 +24,17 @@ logging.basicConfig(
 
 def main():
     """Entry point."""
+    # flow_dir_d8_path = './test_floodplain_workspace/flow_dir_d8.tif'
+    # target_stream_vector_path = './test_floodplain_workspace/stream.gpkg'
+    # target_watershed_boundary_vector_path = 'test_watershed.gpkg'
+    # geoprocessing.routing.calculate_subwatershed_boundary(
+    #     (flow_dir_d8_path, 1), target_stream_vector_path,
+    #     target_watershed_boundary_vector_path,
+    #     outlet_at_confluence=False)
+    # return
+
+
+
     side_length = 1000
     dem_array = numpy.zeros((side_length, side_length))
 
