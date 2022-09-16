@@ -573,11 +573,12 @@ def _calculate_load(
                     except ValueError:
                         # defaulting to "use raster"
                         load_val = fertilizer_array[lucode_mask]
-                    load_multiplier = 1.0
-                    if 'load_multiplier' in lucode_to_parameters[lucode]:
+                    try:
                         load_multiplier = float(
                             lucode_to_parameters[lucode][
                                 'load_multiplier'])
+                    except ValueError:
+                        load_multiplier = 1.0
                     result[lucode_mask] = (
                         load_val * cell_area_ha * load_multiplier)
                 except KeyError:
