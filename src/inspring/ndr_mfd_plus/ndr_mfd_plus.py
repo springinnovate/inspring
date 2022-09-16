@@ -66,6 +66,13 @@ def execute(args):
 
             Must contain the following headers:
             'load_n', 'eff_n', 'crit_len_n'
+
+            note 'load_n' may have the value "use raster" which causes the
+            load to use `fertilizer_path` when encountered.
+
+            if the table also contains a value called "load_multiplier",
+            that value is used to multiply whatever load is calculated for
+            that landcover type.
         args['biophyisical_lucode_fieldname'] (str): field in biophysical
             table that is used to reference the lucode.
         args['fertilizer_path'] (string): path to raster to use for fertlizer
@@ -564,9 +571,15 @@ def _calculate_load(
                     try:
                         load_val = float(load_val)
                     except ValueError:
+                        # defaulting to "use raster"
                         load_val = fertilizer_array[lucode_mask]
-
-                    result[lucode_mask] = load_val * cell_area_ha
+                    load_multiplier = 1.0
+                    if 'load_multiplier' in lucode_to_parameters[lucode]:
+                        load_multiplier = float(
+                            lucode_to_parameters[lucode][
+                                'load_multiplier'])
+                    result[lucode_mask] = (
+                        load_val * cell_area_ha * load_multiplier)
                 except KeyError:
                     raise KeyError(
                         'lucode: %d is present in the landuse raster but '
