@@ -58,15 +58,6 @@ setup(
             language="c++",
         ),
         Extension(
-            name="inspring.ndr_d8_plus.ndr_d8_plus_cython",
-            sources=["src/inspring/ndr_d8_plus/ndr_d8_plus_cython.pyx"],
-            include_dirs=[
-                numpy.get_include(),
-                'src/inspring/ndr_d8_plus',
-                'src/inspring/lrucache'],
-            language="c++",
-        ),
-        Extension(
             name="inspring.ndr_mfd_plus.ndr_mfd_plus_cython",
             sources=["src/inspring/ndr_mfd_plus/ndr_mfd_plus_cython.pyx"],
             include_dirs=[

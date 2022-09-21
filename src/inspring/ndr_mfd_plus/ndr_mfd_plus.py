@@ -18,7 +18,7 @@ LOGGER = logging.getLogger(__name__)
 _OUTPUT_BASE_FILES = {
     'n_export_path': 'n_export.tif',
     'n_retention_path': 'n_retention.tif',
-    }
+}
 
 _INTERMEDIATE_BASE_FILES = {
     'ic_factor_path': 'ic_factor.tif',
@@ -38,7 +38,7 @@ _INTERMEDIATE_BASE_FILES = {
     'flow_accumulation_path': 'flow_accumulation.tif',
     'flow_direction_path': 'flow_direction.tif',
     'thresholded_slope_path': 'thresholded_slope.tif',
-    }
+}
 
 _CACHE_BASE_FILES = {
     'filled_dem_path': 'filled_dem.tif',
@@ -47,7 +47,7 @@ _CACHE_BASE_FILES = {
     'slope_path': 'slope.tif',
     'aligned_lulc_path': 'aligned_lulc.tif',
     'aligned_runoff_proxy_path': 'aligned_runoff_proxy.tif',
-    }
+}
 
 _TARGET_NODATA = -1
 
@@ -556,15 +556,20 @@ def _calculate_load(
     """
     lulc_raster_info = geoprocessing.get_raster_info(lulc_raster_path)
     nodata_landuse = lulc_raster_info['nodata'][0]
+    nodata_fert = geoprocessing.get_raster_info(fertilizer_path)['nodata'][0]
     cell_area_ha = abs(numpy.prod(lulc_raster_info['pixel_size'])) * 0.0001
 
     def _map_load_op(lucode_array, fertilizer_array):
         """Convert unit load to total load & handle nodata."""
         result = numpy.full(
             lucode_array.shape, _TARGET_NODATA, dtype=numpy.float32)
+        if nodata_fert is not None:
+            fert_valid = fertilizer_array != nodata_fert
+        else:
+            fert_valid = numpy.ones(lucode_array.shape, dtype=bool)
         for lucode in numpy.unique(lucode_array):
             if lucode != nodata_landuse:
-                lucode_mask = lucode_array == lucode
+                lucode_mask = (lucode_array == lucode) & fert_valid
                 try:
                     load_val = lucode_to_parameters[lucode][load_type]
                     # load val will either be a float or a "use raster"
