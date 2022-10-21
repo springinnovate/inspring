@@ -6,19 +6,14 @@ import re
 import warnings
 
 import numpy
-import pygeoprocessing
-import pygeoprocessing.routing
+from ecoshard import geoprocessing
+from ecoshard.geoprocessing import routing
 import scipy.special
 import taskgraph
 from osgeo import gdal
 from osgeo import ogr
 
-from .. import gettext
-from .. import spec_utils
 from .. import utils
-from .. import validation
-from ..model_metadata import MODEL_METADATA
-from ..spec_utils import u
 from . import seasonal_water_yield_core
 
 gdal.SetCacheMax(2**26)
@@ -30,255 +25,6 @@ N_MONTHS = 12
 MONTH_ID_TO_LABEL = [
     'jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct',
     'nov', 'dec']
-
-ARGS_SPEC = {
-    "model_name": MODEL_METADATA["seasonal_water_yield"].model_title,
-    "pyname": MODEL_METADATA["seasonal_water_yield"].pyname,
-    "userguide": MODEL_METADATA["seasonal_water_yield"].userguide,
-    "args_with_spatial_overlap": {
-        "spatial_keys": ["dem_raster_path", "lulc_raster_path",
-                         "soil_group_path", "aoi_path", "l_path",
-                         "climate_zone_raster_path"],
-        "different_projections_ok": True,
-    },
-    "args": {
-        "workspace_dir": spec_utils.WORKSPACE,
-        "results_suffix": spec_utils.SUFFIX,
-        "n_workers": spec_utils.N_WORKERS,
-        "threshold_flow_accumulation": spec_utils.THRESHOLD_FLOW_ACCUMULATION,
-        "et0_dir": {
-            "type": "directory",
-            "contents": {
-                # monthly et0 maps, each file ending in a number 1-12
-                "[MONTH]": {
-                    **spec_utils.ET0,
-                    "about": gettext(
-                        "Twelve files, one for each month. File names must "
-                        "end with the month number (1-12). For example, "
-                        "the filenames 'et0_1.tif' "
-                        "'evapotranspiration1.tif' are both valid for the "
-                        "month of January."),
-                },
-            },
-            "required": "not user_defined_local_recharge",
-            "about": gettext(
-                "Directory containing maps of reference evapotranspiration "
-                "for each month. Only .tif files should be in this folder "
-                "(no .tfw, .xml, etc files)."),
-            "name": gettext("ET0 directory")
-        },
-        "precip_dir": {
-            "type": "directory",
-            "contents": {
-                # monthly precipitation maps, each file ending in a number 1-12
-                "[MONTH]": {
-                    **spec_utils.PRECIP,
-                    "about": gettext(
-                        "Twelve files, one for each month. File names must "
-                        "end with the month number (1-12). For example, "
-                        "the filenames 'precip_1.tif' and 'precip1.tif' are "
-                        "both valid names for the month of January."),
-                },
-            },
-            "required": "not user_defined_local_recharge",
-            "about": gettext(
-                "Directory containing maps of monthly precipitation for each "
-                "month. Only .tif files should be in this folder (no .tfw, "
-                ".xml, etc files)."),
-            "name": gettext("precipitation directory")
-        },
-        "dem_raster_path": {
-            **spec_utils.DEM,
-            "projected": True
-        },
-        "lulc_raster_path": {
-            **spec_utils.LULC,
-            "projected": True,
-            "about": gettext(
-                f"{spec_utils.LULC['about']} All values in this raster MUST "
-                "have corresponding entries in the Biophysical Table.")
-        },
-        "soil_group_path": {
-            **spec_utils.SOIL_GROUP,
-            "projected": True,
-            "required": "not user_defined_local_recharge"
-        },
-        "aoi_path": {
-            **spec_utils.AOI,
-            "projected": True
-        },
-        "biophysical_table_path": {
-            "type": "csv",
-            "columns": {
-                "lucode": {
-                    "type": "integer",
-                    "about": gettext("LULC code matching those in the LULC raster.")},
-                "cn_[SOIL_GROUP]": {
-                    "type": "number",
-                    "units": u.none,
-                    "about": gettext(
-                        "Curve number values for each combination of soil "
-                        "group and LULC class. Replace [SOIL_GROUP] with each "
-                        "soil group code A, B, C, D so that there is one "
-                        "column for each soil group. Curve number values must "
-                        "be greater than 0.")
-                },
-                "kc_[MONTH]": {
-                    "type": "number",
-                    "units": u.none,
-                    "about": gettext(
-                        "Crop/vegetation coefficient (Kc) values for this "
-                        "LULC class in each month. Replace [MONTH] with the "
-                        "numbers 1 to 12 so that there is one column for each "
-                        "month.")
-                }
-            },
-            "about": gettext(
-                "A table mapping each LULC code to biophysical properties of "
-                "the corresponding LULC class. All values in the LULC raster "
-                "must have corresponding entries in this table."),
-            "name": gettext("biophysical table")
-        },
-        "rain_events_table_path": {
-            "type": "csv",
-            "columns": {
-                "month": {
-                    "type": "number",
-                    "units": u.none,
-                    "about": gettext(
-                        "Values are the numbers 1-12 corresponding to each "
-                        "month, January (1) through December (12).")
-                },
-                "events": {
-                    "type": "number",
-                    "units": u.none,
-                    "about": gettext("The number of rain events in that month.")
-                }
-            },
-            "required": (
-                "(not user_defined_local_recharge) & (not "
-                "user_defined_climate_zones)"),
-            "about": gettext(
-                "A table containing the number of rain events for each month. "
-                "Required if neither User-Defined Local Recharge nor User-"
-                "Defined Climate Zones is selected."),
-            "name": gettext("rain events table")
-        },
-        "alpha_m": {
-            "type": "freestyle_string",
-            "required": "not monthly_alpha",
-            "about": gettext(
-                "The proportion of upslope annual available local recharge "
-                "that is available in each month. Required if Use Monthly "
-                "Alpha Table is not selected."),
-            "name": gettext("alpha_m parameter")
-        },
-        "beta_i": {
-            "type": "ratio",
-            "about": gettext(
-                "The proportion of the upgradient subsidy that is available "
-                "for downgradient evapotranspiration."),
-            "name": gettext("beta_i parameter")
-        },
-        "gamma": {
-            "type": "ratio",
-            "about": gettext(
-                "The proportion of pixel local recharge that is available to "
-                "downgradient pixels."),
-            "name": gettext("gamma parameter")
-        },
-        "user_defined_local_recharge": {
-            "type": "boolean",
-            "about": gettext(
-                "Use user-defined local recharge data instead of calculating "
-                "local recharge from the other provided data."),
-            "name": gettext("user-defined recharge layer (advanced)")
-        },
-        "l_path": {
-            "type": "raster",
-            "bands": {1: {
-                "type": "number",
-                "units": u.millimeter
-            }},
-            "required": "user_defined_local_recharge",
-            "projected": True,
-            "about": gettext(
-                "Map of local recharge data. Required if User-Defined Local "
-                "Recharge is selected."),
-            "name": gettext("local recharge")
-        },
-        "user_defined_climate_zones": {
-            "type": "boolean",
-            "about": gettext(
-                "Use user-defined climate zone data in lieu of a global rain "
-                "events table."),
-            "name": gettext("climate zones (advanced)")
-        },
-        "climate_zone_table_path": {
-            "type": "csv",
-            "columns": {
-                "cz_id": {
-                    "type": "integer",
-                    "about": gettext(
-                        "Climate zone ID numbers, corresponding to the values "
-                        "in the Climate Zones map.")},
-                "[MONTH]": {  # jan, feb, mar, etc.
-                    "type": "number",
-                    "units": u.none,
-                    "about": gettext(
-                        "The number of rain events that occur in each month "
-                        "in this climate zone. Replace [MONTH] with the month "
-                        "abbreviations: jan, feb, mar, apr, may, jun, jul, "
-                        "aug, sep, oct, nov, dec, so that there is a column "
-                        "for each month.")}
-            },
-            "required": "user_defined_climate_zones",
-            "about": gettext(
-                "Table of monthly precipitation events for each climate zone. "
-                "Required if User-Defined Climate Zones is selected."),
-            "name": gettext("climate zone table")
-        },
-        "climate_zone_raster_path": {
-            "type": "raster",
-            "bands": {1: {"type": "integer"}},
-            "required": "user_defined_climate_zones",
-            "projected": True,
-            "about": gettext(
-                "Map of climate zones. All values in this raster must have "
-                "corresponding entries in the Climate Zone Table."),
-            "name": gettext("climate zone map")
-        },
-        "monthly_alpha": {
-            "type": "boolean",
-            "about": gettext(
-                "Use montly alpha values instead of a single value for the "
-                "whole year."),
-            "name": gettext("use monthly alpha table (advanced)")
-        },
-        "monthly_alpha_path": {
-            "type": "csv",
-            "columns": {
-                "month": {
-                    "type": "number",
-                    "units": u.none,
-                    "about": gettext(
-                        "Values are the numbers 1-12 corresponding to each "
-                        "month.")
-                },
-                "alpha": {
-                    "type": "number",
-                    "units": u.none,
-                    "about": gettext("The alpha value for that month.")
-                }
-            },
-            "required": "monthly_alpha",
-            "about": gettext(
-                "Table of alpha values for each month. "
-                "Required if Use Monthly Alpha Table is selected."),
-            "name": gettext("monthly alpha table")
-        }
-    }
-}
 
 
 _OUTPUT_BASE_FILES = {
@@ -449,7 +195,7 @@ def _execute(args):
                 args['biophysical_table_path'], ','.join(
                     ['%s(lucode %d): "%s"' % (
                         lucode, biophysical_id, bad_value)
-                     for lucode, biophysical_id, bad_value in
+                     for code, biophysical_id, bad_value in
                         bad_value_list])))
 
     if args['monthly_alpha']:
@@ -467,7 +213,7 @@ def _execute(args):
     beta_i = float(fractions.Fraction(args['beta_i']))
     gamma = float(fractions.Fraction(args['gamma']))
     threshold_flow_accumulation = float(args['threshold_flow_accumulation'])
-    pixel_size = pygeoprocessing.get_raster_info(
+    pixel_size = geoprocessing.get_raster_info(
         args['dem_raster_path'])['pixel_size']
     file_suffix = utils.make_suffix_string(args, 'results_suffix')
     intermediate_output_dir = os.path.join(
@@ -553,7 +299,7 @@ def _execute(args):
     interpolate_list = ['near'] * len(input_align_list)
 
     align_task = task_graph.add_task(
-        func=pygeoprocessing.align_and_resize_raster_stack,
+        func=geoprocessing.align_and_resize_raster_stack,
         args=(
             input_align_list, output_align_list, interpolate_list,
             pixel_size, 'intersection'),
@@ -564,7 +310,7 @@ def _execute(args):
         task_name='align rasters')
 
     fill_pit_task = task_graph.add_task(
-        func=pygeoprocessing.routing.fill_pits,
+        func=routing.fill_pits,
         args=(
             (file_registry['dem_aligned_path'], 1),
             file_registry['dem_pit_filled_path']),
@@ -574,7 +320,7 @@ def _execute(args):
         task_name='fill dem pits')
 
     flow_dir_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_dir_mfd,
+        func=routing.flow_dir_mfd,
         args=(
             (file_registry['dem_pit_filled_path'], 1),
             file_registry['flow_dir_mfd_path']),
@@ -584,7 +330,7 @@ def _execute(args):
         task_name='flow dir mfd')
 
     flow_accum_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_mfd,
+        func=routing.flow_accumulation_mfd,
         args=(
             (file_registry['flow_dir_mfd_path'], 1),
             file_registry['flow_accum_path']),
@@ -593,7 +339,7 @@ def _execute(args):
         task_name='flow accum task')
 
     stream_threshold_task = task_graph.add_task(
-        func=pygeoprocessing.routing.extract_streams_mfd,
+        func=routing.extract_streams_mfd,
         args=(
             (file_registry['flow_accum_path'], 1),
             (file_registry['flow_dir_mfd_path'], 1),
@@ -649,7 +395,7 @@ def _execute(args):
                 # rain_events_lookup defined near entry point of execute
                 n_events = rain_events_lookup[month_id+1]['events']
                 n_events_task = task_graph.add_task(
-                    func=pygeoprocessing.new_raster_from_base,
+                    func=geoprocessing.new_raster_from_base,
                     args=(
                         file_registry['dem_aligned_path'],
                         file_registry['n_events_path_list'][month_id],
@@ -785,7 +531,7 @@ def _execute(args):
 
     LOGGER.info('calculate L_sum')  # Eq. [12]
     l_sum_task = task_graph.add_task(
-        func=pygeoprocessing.routing.flow_accumulation_mfd,
+        func=routing.flow_accumulation_mfd,
         args=(
             (file_registry['flow_dir_mfd_path'], 1),
             file_registry['l_sum_path']),
@@ -841,15 +587,15 @@ def _calculate_vri(l_path, target_vri_path):
     """
     qb_sum = 0.0
     qb_valid_count = 0
-    l_nodata = pygeoprocessing.get_raster_info(l_path)['nodata'][0]
+    l_nodata = geoprocessing.get_raster_info(l_path)['nodata'][0]
 
-    for _, block in pygeoprocessing.iterblocks((l_path, 1)):
+    for _, block in geoprocessing.iterblocks((l_path, 1)):
         valid_mask = (
             ~utils.array_equals_nodata(block, l_nodata) &
             (~numpy.isinf(block)))
         qb_sum += numpy.sum(block[valid_mask])
         qb_valid_count += numpy.count_nonzero(valid_mask)
-    li_nodata = pygeoprocessing.get_raster_info(l_path)['nodata'][0]
+    li_nodata = geoprocessing.get_raster_info(l_path)['nodata'][0]
 
     def vri_op(li_array):
         """Calculate vri index [Eq 10]."""
@@ -863,7 +609,7 @@ def _calculate_vri(l_path, target_vri_path):
                 LOGGER.exception(qb_sum)
                 raise
         return result
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(l_path, 1)], vri_op, target_vri_path, gdal.GDT_Float32,
         li_nodata)
 
@@ -892,7 +638,7 @@ def _calculate_annual_qfi(qfm_path_list, target_qf_path):
         qf_sum[valid_mask] = valid_qf_sum
         return qf_sum
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in qfm_path_list],
         qfi_sum_op, target_qf_path, gdal.GDT_Float32, qf_nodata)
 
@@ -919,13 +665,13 @@ def _calculate_monthly_quick_flow(
     Returns:
         None
     """
-    si_nodata = pygeoprocessing.get_raster_info(si_path)['nodata'][0]
+    si_nodata = geoprocessing.get_raster_info(si_path)['nodata'][0]
 
     qf_nodata = -1
-    p_nodata = pygeoprocessing.get_raster_info(precip_path)['nodata'][0]
-    n_events_nodata = pygeoprocessing.get_raster_info(
+    p_nodata = geoprocessing.get_raster_info(precip_path)['nodata'][0]
+    n_events_nodata = geoprocessing.get_raster_info(
         n_events_raster_path)['nodata'][0]
-    stream_nodata = pygeoprocessing.get_raster_info(stream_path)['nodata'][0]
+    stream_nodata = geoprocessing.get_raster_info(stream_path)['nodata'][0]
 
     def qf_op(p_im, s_i, n_events, stream_array):
         """Calculate quick flow as in Eq [1] in user's guide.
@@ -1002,7 +748,7 @@ def _calculate_monthly_quick_flow(
               ~utils.array_equals_nodata(stream_array, stream_nodata)] = 0.0
         return qf_im
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(path, 1) for path in [
             precip_path, si_path, n_events_raster_path, stream_path]], qf_op,
         qf_monthly_path, gdal.GDT_Float32, qf_nodata)
@@ -1027,7 +773,7 @@ def _calculate_curve_number_raster(
     Returns:
         None
     """
-    soil_nodata = pygeoprocessing.get_raster_info(
+    soil_nodata = geoprocessing.get_raster_info(
         soil_group_path)['nodata'][0]
     map_soil_type_to_header = {
         1: 'cn_a',
@@ -1038,7 +784,7 @@ def _calculate_curve_number_raster(
     # curve numbers are always positive so -1 a good nodata choice
     cn_nodata = -1
     lulc_to_soil = {}
-    lulc_nodata = pygeoprocessing.get_raster_info(
+    lulc_nodata = geoprocessing.get_raster_info(
         lulc_raster_path)['nodata'][0]
 
     lucodes = list(biophysical_table)
@@ -1106,7 +852,7 @@ def _calculate_curve_number_raster(
         return cn_result
 
     cn_nodata = -1
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(lulc_raster_path, 1), (soil_group_path, 1)], cn_op, cn_path,
         gdal.GDT_Float32, cn_nodata)
 
@@ -1123,7 +869,7 @@ def _calculate_si_raster(cn_path, stream_path, si_path):
         None
     """
     si_nodata = -1
-    cn_nodata = pygeoprocessing.get_raster_info(cn_path)['nodata'][0]
+    cn_nodata = geoprocessing.get_raster_info(cn_path)['nodata'][0]
 
     def si_op(ci_factor, stream_mask):
         """Calculate si factor."""
@@ -1139,7 +885,7 @@ def _calculate_si_raster(cn_path, stream_path, si_path):
                 stream_mask[valid_mask] != 1))
         return si_array
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(cn_path, 1), (stream_path, 1)], si_op, si_path, gdal.GDT_Float32,
         si_nodata)
 
@@ -1184,7 +930,7 @@ def _aggregate_recharge(
             (l_path, 'qb', 'mean'), (vri_path, 'vri_sum', 'sum')]:
 
         # aggregate carbon stocks by the new ID field
-        aggregate_stats = pygeoprocessing.zonal_statistics(
+        aggregate_stats = geoprocessing.zonal_statistics(
             (raster_path, 1), aggregate_vector_path)
 
         aggregate_field = ogr.FieldDefn(aggregate_field_id, ogr.OFTReal)
@@ -1217,7 +963,7 @@ def _aggregate_recharge(
 
 def _calculate_l_avail(l_path, gamma, target_l_avail_path):
     """l avail = l * gamma."""
-    li_nodata = pygeoprocessing.get_raster_info(l_path)['nodata'][0]
+    li_nodata = geoprocessing.get_raster_info(l_path)['nodata'][0]
 
     def l_avail_op(l_array):
         """Calculate equation [8] L_avail = min(gamma*L, L)."""
@@ -1228,28 +974,6 @@ def _calculate_l_avail(l_path, gamma, target_l_avail_path):
             (gamma*l_array[valid_mask], l_array[valid_mask])), axis=0)
         return result
 
-    pygeoprocessing.raster_calculator(
+    geoprocessing.raster_calculator(
         [(l_path, 1)], l_avail_op, target_l_avail_path, gdal.GDT_Float32,
         li_nodata)
-
-
-@validation.invest_validator
-def validate(args, limit_to=None):
-    """Validate args to ensure they conform to `execute`'s contract.
-
-    Args:
-        args (dict): dictionary of key(str)/value pairs where keys and
-            values are specified in `execute` docstring.
-        limit_to (str): (optional) if not None indicates that validation
-            should only occur on the args[limit_to] value. The intent that
-            individual key validation could be significantly less expensive
-            than validating the entire `args` dictionary.
-
-    Returns:
-        list of ([invalid key_a, invalid_keyb, ...], 'warning/error message')
-            tuples. Where an entry indicates that the invalid keys caused
-            the error message in the second part of the tuple. This should
-            be an empty list if validation succeeds.
-    """
-    return validation.validate(args, ARGS_SPEC['args'],
-                               ARGS_SPEC['args_with_spatial_overlap'])

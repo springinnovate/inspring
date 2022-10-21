@@ -5,7 +5,7 @@ import os
 import collections
 import sys
 import gc
-import pygeoprocessing
+from ecoshard import geoprocessing
 
 import numpy
 cimport numpy
@@ -77,7 +77,7 @@ ctypedef pair[int, double*] BlockBufferPair
 cdef int MANAGED_RASTER_N_BLOCKS = 2**4
 
 # a class to allow fast random per-pixel access to a raster for both setting
-# and reading pixels.  Copied from src/pygeoprocessing/routing/routing.pyx,
+# and reading pixels.  Copied from src/geoprocessing/routing/routing.pyx,
 # revision 891288683889237cfd3a3d0a1f09483c23489fca.
 cdef class _ManagedRaster:
     cdef LRUCache[int, double*]* lru_cache
@@ -112,7 +112,7 @@ cdef class _ManagedRaster:
         Returns:
             None.
         """
-        raster_info = pygeoprocessing.get_raster_info(raster_path)
+        raster_info = geoprocessing.get_raster_info(raster_path)
         self.raster_x_size, self.raster_y_size = raster_info['raster_size']
         self.block_xsize, self.block_ysize = raster_info['block_size']
         self.block_xmod = self.block_xsize-1
@@ -386,7 +386,7 @@ cpdef calculate_local_recharge(
         et0_path_list (list): path to monthly ET0 rasters. (model input)
         qf_m_path_list (list): path to monthly quickflow rasters calculated by
             Equation [1].
-        flow_dir_mfd_path (str): path to a PyGeoprocessing Multiple Flow
+        flow_dir_mfd_path (str): path to a Geoprocessing Multiple Flow
             Direction raster indicating flow directions for this analysis.
         alpha_month_map (dict): fraction of upslope annual available recharge
             that is available in month m (indexed from 1).
@@ -437,8 +437,8 @@ cpdef calculate_local_recharge(
     cdef time_t last_log_time
     last_log_time = ctime(NULL)
 
-    # we know the PyGeoprocessing MFD raster flow dir type is a 32 bit int.
-    flow_dir_raster_info = pygeoprocessing.get_raster_info(flow_dir_mfd_path)
+    # we know the Geoprocessing MFD raster flow dir type is a 32 bit int.
+    flow_dir_raster_info = geoprocessing.get_raster_info(flow_dir_mfd_path)
     flow_dir_nodata = flow_dir_raster_info['nodata'][0]
     raster_x_size, raster_y_size = flow_dir_raster_info['raster_size']
     cdef _ManagedRaster flow_raster = _ManagedRaster(flow_dir_mfd_path, 1, 0)
@@ -451,7 +451,7 @@ cpdef calculate_local_recharge(
     et0_m_nodata_list = []
     for et0_path in et0_path_list:
         et0_m_raster_list.append(_ManagedRaster(et0_path, 1, 0))
-        nodata = pygeoprocessing.get_raster_info(et0_path)['nodata'][0]
+        nodata = geoprocessing.get_raster_info(et0_path)['nodata'][0]
         if nodata is None:
             nodata = -1
         et0_m_nodata_list.append(nodata)
@@ -460,7 +460,7 @@ cpdef calculate_local_recharge(
     precip_m_nodata_list = []
     for precip_m_path in precip_path_list:
         precip_m_raster_list.append(_ManagedRaster(precip_m_path, 1, 0))
-        nodata = pygeoprocessing.get_raster_info(precip_m_path)['nodata'][0]
+        nodata = geoprocessing.get_raster_info(precip_m_path)['nodata'][0]
         if nodata is None:
             nodata = -1
         precip_m_nodata_list.append(nodata)
@@ -470,48 +470,48 @@ cpdef calculate_local_recharge(
     for qf_m_path in qf_m_path_list:
         qf_m_raster_list.append(_ManagedRaster(qf_m_path, 1, 0))
         qf_m_nodata_list.append(
-            pygeoprocessing.get_raster_info(qf_m_path)['nodata'][0])
+            geoprocessing.get_raster_info(qf_m_path)['nodata'][0])
 
     kc_m_raster_list = []
     kc_m_nodata_list = []
     for kc_m_path in kc_path_list:
         kc_m_raster_list.append(_ManagedRaster(kc_m_path, 1, 0))
         kc_m_nodata_list.append(
-            pygeoprocessing.get_raster_info(kc_m_path)['nodata'][0])
+            geoprocessing.get_raster_info(kc_m_path)['nodata'][0])
 
     target_nodata = -1e32
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         flow_dir_mfd_path, target_li_path, gdal.GDT_Float32, [target_nodata],
         fill_value_list=[target_nodata])
     cdef _ManagedRaster target_li_raster = _ManagedRaster(
         target_li_path, 1, 1)
 
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         flow_dir_mfd_path, target_li_avail_path, gdal.GDT_Float32,
         [target_nodata], fill_value_list=[target_nodata])
     cdef _ManagedRaster target_li_avail_raster = _ManagedRaster(
         target_li_avail_path, 1, 1)
 
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         flow_dir_mfd_path, target_l_sum_avail_path, gdal.GDT_Float32,
         [target_nodata], fill_value_list=[target_nodata])
     cdef _ManagedRaster target_l_sum_avail_raster = _ManagedRaster(
         target_l_sum_avail_path, 1, 1)
 
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         flow_dir_mfd_path, target_aet_path, gdal.GDT_Float32, [target_nodata],
         fill_value_list=[target_nodata])
     cdef _ManagedRaster target_aet_raster = _ManagedRaster(
         target_aet_path, 1, 1)
 
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         flow_dir_mfd_path, target_pi_path, gdal.GDT_Float32, [target_nodata],
         fill_value_list=[target_nodata])
     cdef _ManagedRaster target_pi_raster = _ManagedRaster(
         target_pi_path, 1, 1)
 
 
-    for offset_dict in pygeoprocessing.iterblocks(
+    for offset_dict in geoprocessing.iterblocks(
             (flow_dir_mfd_path, 1), offset_only=True, largest_block=0):
         win_xsize = offset_dict['win_xsize']
         win_ysize = offset_dict['win_ysize']
@@ -694,7 +694,7 @@ def route_baseflow_sum(
     """Route Baseflow through MFD as described in Equation 11.
 
     Args:
-        flow_dir_mfd_path (string): path to a pygeoprocessing multiple flow
+        flow_dir_mfd_path (string): path to a geoprocessing multiple flow
             direction raster.
         l_path (string): path to local recharge raster.
         l_avail_path (string): path to local recharge raster that shows
@@ -725,17 +725,17 @@ def route_baseflow_sum(
     cdef int stream_nodata
     cdef stack[pair[int, int]] work_stack
 
-    # we know the PyGeoprocessing MFD raster flow dir type is a 32 bit int.
-    flow_dir_raster_info = pygeoprocessing.get_raster_info(flow_dir_mfd_path)
+    # we know the Geoprocessing MFD raster flow dir type is a 32 bit int.
+    flow_dir_raster_info = geoprocessing.get_raster_info(flow_dir_mfd_path)
     flow_dir_nodata = flow_dir_raster_info['nodata'][0]
     raster_x_size, raster_y_size = flow_dir_raster_info['raster_size']
 
-    stream_nodata = pygeoprocessing.get_raster_info(stream_path)['nodata'][0]
+    stream_nodata = geoprocessing.get_raster_info(stream_path)['nodata'][0]
 
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         flow_dir_mfd_path, target_b_sum_path, gdal.GDT_Float32,
         [target_nodata], fill_value_list=[target_nodata])
-    pygeoprocessing.new_raster_from_base(
+    geoprocessing.new_raster_from_base(
         flow_dir_mfd_path, target_b_path, gdal.GDT_Float32,
         [target_nodata], fill_value_list=[target_nodata])
 
@@ -752,7 +752,7 @@ def route_baseflow_sum(
     cdef _ManagedRaster stream_raster = _ManagedRaster(stream_path, 1, 0)
 
     current_pixel = 0
-    for offset_dict in pygeoprocessing.iterblocks(
+    for offset_dict in geoprocessing.iterblocks(
             (flow_dir_mfd_path, 1), offset_only=True, largest_block=0):
         win_xsize = offset_dict['win_xsize']
         win_ysize = offset_dict['win_ysize']
