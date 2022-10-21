@@ -75,5 +75,14 @@ setup(
                 'src/inspring/lrucache'],
             language="c++",
         ),
+        Extension(
+            name="inspring.seasonal_water_yield.seasonal_water_yield_core",
+            sources=["src/inspring/seasonal_water_yield/seasonal_water_yield_core.pyx"],
+            include_dirs=[
+                numpy.get_include(),
+                'src/inspring/seasonal_water_yield',
+                'src/inspring/lrucache'],
+            language="c++",
+        ),
     ]
 )
