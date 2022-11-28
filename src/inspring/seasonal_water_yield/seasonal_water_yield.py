@@ -8,8 +8,8 @@ import warnings
 import numpy
 from ecoshard import geoprocessing
 from ecoshard.geoprocessing import routing
+from ecoshard import taskgraph
 import scipy.special
-import taskgraph
 from osgeo import gdal
 from osgeo import ogr
 
