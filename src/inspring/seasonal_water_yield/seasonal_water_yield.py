@@ -93,6 +93,8 @@ def execute(args):
         args['dem_raster_path'] (string): a path to a digital elevation raster
         args['lulc_raster_path'] (string): a path to a land cover raster used
             to classify biophysical properties of pixels.
+        args['lucode_field'] (string): fieldname in lucode lookup table for the
+            lucode.
         args['soil_group_path'] (string): required if
             args['user_defined_local_recharge'] is  False. A path to a raster
             indicating SCS soil groups where integer values are mapped to soil
@@ -176,7 +178,7 @@ def _execute(args):
                 args['rain_events_table_path'], 'month'))
 
     biophysical_table = utils.build_lookup_from_csv(
-        args['biophysical_table_path'], 'lucode')
+        args['biophysical_table_path'], args['lucode_field'])
 
     bad_value_list = []
     for lucode, value in biophysical_table.items():
@@ -263,7 +265,7 @@ def _execute(args):
                 args['precip_dir'])]
 
         for month_index in range(1, N_MONTHS + 1):
-            month_file_match = re.compile(r'.*[^\d]%d\.[^.]+$' % month_index)
+            month_file_match = re.compile(r'.*[^\d]0?%d\.[^.]+$' % month_index)
 
             for data_type, dir_list, path_list in [
                     ('et0', et0_dir_list, et0_path_list),
