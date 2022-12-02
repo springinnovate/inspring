@@ -315,12 +315,34 @@ def _execute(args):
         file_registry['et0_path_aligned_list'] = et0_path_list
         align_task = task_graph.add_task()
 
+    if 'single_outlet' in args and args['single_outlet'] is True:
+        get_drain_sink_pixel_task = task_graph.add_task(
+            func=geoprocessing.routing.detect_lowest_drain_and_sink,
+            args=((file_registry['dem_aligned_path'], 1),),
+            store_result=True,
+            dependent_task_list=[align_task],
+            task_name=f"get drain/sink pixel for {file_registry['dem_aligned_path']}")
+
+        edge_pixel, edge_height, pit_pixel, pit_height = (
+            get_drain_sink_pixel_task.get())
+
+        if pit_height < edge_height - 20:
+            # if the pit is 20 m lower than edge it's probably a big sink
+            single_outlet_tuple = pit_pixel
+        else:
+            single_outlet_tuple = edge_pixel
+    else:
+        single_outlet_tuple = None
+
     fill_pit_task = task_graph.add_task(
         func=routing.fill_pits,
         args=(
             (file_registry['dem_aligned_path'], 1),
             file_registry['dem_pit_filled_path']),
-        kwargs={'working_dir': cache_dir},
+        kwargs={
+            'working_dir': cache_dir,
+            'max_pixel_fill_count': -1,
+            'single_outlet_tuple': single_outlet_tuple},
         target_path_list=[file_registry['dem_pit_filled_path']],
         dependent_task_list=[align_task],
         task_name='fill dem pits')
