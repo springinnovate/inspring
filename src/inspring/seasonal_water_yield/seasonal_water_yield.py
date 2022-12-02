@@ -256,7 +256,7 @@ def _execute(args):
                 args['precip_dir'])]
 
         for month_index in range(1, N_MONTHS + 1):
-            month_file_match = re.compile(r'.*[^\d]0?%d\.[^.]+$' % month_index)
+            month_file_match = re.compile(r'.*[^\d]0?%d\.[^.]+tif$' % month_index)
             LOGGER.debug(month_file_match)
 
             for data_type, dir_list, path_list in [
