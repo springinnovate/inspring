@@ -137,11 +137,8 @@ def execute(args):
         args['monthly_alpha'] (boolean): if True, use the alpha
         args['monthly_alpha_path'] (string): required if args['monthly_alpha']
             is True. A CSV file.
-        args['n_workers'] (int): (optional) indicates the number of processes
-            to devote to potential parallel task execution. A value < 0 will
-            use a single process, 0 will be non-blocking scheduling but
-            single process, and >= 1 will make additional processes for
-            parallel execution.
+        args['prealigned'] (bool): if true, input rasters are already aligned
+            and projected.
 
     Returns:
         None.
@@ -223,15 +220,7 @@ def _execute(args):
     output_dir = args['workspace_dir']
     utils.make_directories([intermediate_output_dir, cache_dir, output_dir])
 
-    try:
-        n_workers = int(args['n_workers'])
-    except (KeyError, ValueError, TypeError):
-        # KeyError when n_workers is not present in args
-        # ValueError when n_workers is an empty string.
-        # TypeError when n_workers is None.
-        n_workers = -1  # Synchronous mode.
-    task_graph = taskgraph.TaskGraph(
-        cache_dir, n_workers, reporting_interval=5.0)
+    task_graph = taskgraph.TaskGraph(cache_dir, -1)
 
     LOGGER.info('Building file registry')
     file_registry = utils.build_file_registry(
@@ -252,6 +241,7 @@ def _execute(args):
     input_align_list = [args['lulc_raster_path'], args['dem_raster_path']]
     output_align_list = [
         file_registry['lulc_aligned_path'], file_registry['dem_aligned_path']]
+    aligned_key_list = ['lulc_aligned_path', 'dem_aligned_path']
     if not args['user_defined_local_recharge']:
         precip_path_list = []
         et0_path_list = []
@@ -290,6 +280,8 @@ def _execute(args):
             [file_registry['soil_group_aligned_path']] +
             file_registry['et0_path_aligned_list'] + output_align_list)
 
+        aligned_key_list.extend(['soil_group_aligned_path'])
+
     align_index = len(input_align_list) - 1  # this aligns with the DEM
     if args['user_defined_local_recharge']:
         input_align_list.append(args['l_path'])
@@ -300,16 +292,25 @@ def _execute(args):
             file_registry['cz_aligned_raster_path'])
     interpolate_list = ['near'] * len(input_align_list)
 
-    align_task = task_graph.add_task(
-        func=geoprocessing.align_and_resize_raster_stack,
-        args=(
-            input_align_list, output_align_list, interpolate_list,
-            pixel_size, 'intersection'),
-        kwargs={
-            'base_vector_path_list': (args['aoi_path'],),
-            'raster_align_index': align_index},
-        target_path_list=output_align_list,
-        task_name='align rasters')
+    if 'prealigned' not in args or not args['prealigned']:
+        vector_mask_options = {'mask_vector_path': args['watersheds_path']}
+        align_task = task_graph.add_task(
+            func=geoprocessing.align_and_resize_raster_stack,
+            args=(
+                input_align_list, output_align_list, interpolate_list,
+                pixel_size, 'intersection'),
+            kwargs={
+                'base_vector_path_list': (args['aoi_path'],),
+                'raster_align_index': align_index},
+            target_path_list=output_align_list,
+            task_name='align rasters')
+    else:
+        # the aligned stuff is the base stuff
+        for base_key, aligned_key in aligned_key_list:
+            file_registry[aligned_key] = args[base_key]
+        file_registry['precip_path_aligned_list'] = precip_path_list
+        file_registry['et0_path_aligned_list'] = et0_path_list
+        align_task = task_graph.add_task()
 
     fill_pit_task = task_graph.add_task(
         func=routing.fill_pits,
