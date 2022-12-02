@@ -241,7 +241,9 @@ def _execute(args):
     input_align_list = [args['lulc_raster_path'], args['dem_raster_path']]
     output_align_list = [
         file_registry['lulc_aligned_path'], file_registry['dem_aligned_path']]
-    aligned_key_list = ['lulc_aligned_path', 'dem_aligned_path']
+    aligned_key_list = [
+        ('lulc_raster_path', 'lulc_aligned_path'),
+        ('dem_raster_path', 'dem_aligned_path')]
     if not args['user_defined_local_recharge']:
         precip_path_list = []
         et0_path_list = []
@@ -280,7 +282,8 @@ def _execute(args):
             [file_registry['soil_group_aligned_path']] +
             file_registry['et0_path_aligned_list'] + output_align_list)
 
-        aligned_key_list.extend(['soil_group_aligned_path'])
+        aligned_key_list.append(
+            ('soil_group_path', 'soil_group_aligned_path'))
 
     align_index = len(input_align_list) - 1  # this aligns with the DEM
     if args['user_defined_local_recharge']:
