@@ -315,6 +315,7 @@ def _execute(args):
                     input_align_list.append(path)
                     output_align_list.append(
                         file_registry['n_events_path_list'][month_id])
+                    interpolate_list.append('near')
                     break
                 potential_rain_events_path_list.pop(index)
                 reclassify_n_events_task_list.append(empty_task)
