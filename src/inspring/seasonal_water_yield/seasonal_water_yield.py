@@ -316,9 +316,9 @@ def _execute(args):
                     output_align_list.append(
                         file_registry['n_events_path_list'][month_id])
                     interpolate_list.append('near')
+                    potential_rain_events_path_list.pop(index)
+                    reclassify_n_events_task_list.append(empty_task)
                     break
-                potential_rain_events_path_list.pop(index)
-                reclassify_n_events_task_list.append(empty_task)
 
     if 'prealigned' not in args or not args['prealigned']:
         vector_mask_options = {'mask_vector_path': args['watersheds_path']}
@@ -338,6 +338,22 @@ def _execute(args):
             file_registry[aligned_key] = args[base_key]
         file_registry['precip_path_aligned_list'] = precip_path_list
         file_registry['et0_path_aligned_list'] = et0_path_list
+        if args['user_defined_rain_events_path']:
+            potential_rain_events_path_list = list(
+                glob.glob(args['user_defined_rain_events_path']))
+            if len(potential_rain_events_path_list) != 12:
+                raise ValueError(
+                    f'user supplied user defined rain events path as '
+                    f'{args["user_defined_rain_events_path"]}, expected 12, but '
+                    f'matched {len(potential_rain_events_path_list)} files')
+            empty_task = task_graph.add_task()
+            for month_id in range(12, 0, -1):
+                for index, path in enumerate(potential_rain_events_path_list):
+                    if path.find(f'{month_id}') >= 0:
+                        file_registry['n_events_path_list'][month_id] = path
+                        potential_rain_events_path_list.pop(index)
+                        break
+
         align_task = task_graph.add_task()
 
     if 'single_outlet' in args and args['single_outlet'] is True:
