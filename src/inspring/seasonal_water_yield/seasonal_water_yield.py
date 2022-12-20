@@ -299,6 +299,7 @@ def _execute(args):
             file_registry['cz_aligned_raster_path'])
     interpolate_list = ['near'] * len(input_align_list)
 
+    reclassify_n_events_task_list = []
     if args['user_defined_rain_events_path']:
         potential_rain_events_path_list = list(
             glob.glob(args['user_defined_rain_events_path']))
@@ -307,6 +308,7 @@ def _execute(args):
                 f'user supplied user defined rain events path as '
                 f'{args["user_defined_rain_events_path"]} but matched more '
                 f'than 12 files {potential_rain_events_path_list}')
+        empty_task = taskgraph.Task()
         for month_id in range(12, 0, -1):
             for index, path in enumerate(potential_rain_events_path_list):
                 if path.find(f'{month_id}') >= 0:
@@ -315,6 +317,7 @@ def _execute(args):
                         file_registry['n_events_path_list'][month_id])
                     break
                 potential_rain_events_path_list.pop(index)
+                reclassify_n_events_task_list.append(empty_task)
 
     if 'prealigned' not in args or not args['prealigned']:
         vector_mask_options = {'mask_vector_path': args['watersheds_path']}
@@ -414,7 +417,6 @@ def _execute(args):
         # user didn't predefine local recharge or montly events so calculate it
         if not args['user_defined_rain_events_path']:
             LOGGER.info('loading number of monthly events')
-            reclassify_n_events_task_list = []
             reclass_error_details = {
                 'raster_name': 'Climate Zone', 'column_name': 'cz_id',
                 'table_name': 'Climate Zone'}
