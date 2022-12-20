@@ -350,7 +350,7 @@ def _execute(args):
             for month_id in range(12, 0, -1):
                 for index, path in enumerate(potential_rain_events_path_list):
                     if path.find(f'{month_id}') >= 0:
-                        file_registry['n_events_path_list'][month_id] = path
+                        file_registry['n_events_path_list'][month_id-1] = path
                         potential_rain_events_path_list.pop(index)
                         break
 
