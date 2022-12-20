@@ -308,7 +308,7 @@ def _execute(args):
                 f'user supplied user defined rain events path as '
                 f'{args["user_defined_rain_events_path"]} but matched more '
                 f'than 12 files {potential_rain_events_path_list}')
-        empty_task = taskgraph.add_task()
+        empty_task = task_graph.add_task()
         for month_id in range(12, 0, -1):
             for index, path in enumerate(potential_rain_events_path_list):
                 if path.find(f'{month_id}') >= 0:
