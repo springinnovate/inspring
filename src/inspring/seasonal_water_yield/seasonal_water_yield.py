@@ -314,7 +314,7 @@ def _execute(args):
                 if path.find(f'{month_id}') >= 0:
                     input_align_list.append(path)
                     output_align_list.append(
-                        file_registry['n_events_path_list'][month_id])
+                        file_registry['n_events_path_list'][month_id-1])
                     interpolate_list.append('near')
                     potential_rain_events_path_list.pop(index)
                     reclassify_n_events_task_list.append(empty_task)
