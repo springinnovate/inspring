@@ -410,53 +410,54 @@ def _execute(args):
             target_path_list=[file_registry['l_avail_path']],
             dependent_task_list=[align_task],
             task_name='l avail task')
-    elif not args['user_defined_rain_events_path']:
+    else:
         # user didn't predefine local recharge or montly events so calculate it
-        LOGGER.info('loading number of monthly events')
-        reclassify_n_events_task_list = []
-        reclass_error_details = {
-            'raster_name': 'Climate Zone', 'column_name': 'cz_id',
-            'table_name': 'Climate Zone'}
-        # TODO: don't do if already defined
-        for month_id in range(N_MONTHS):
-            if args['user_defined_climate_zones']:
-                cz_rain_events_lookup = (
-                    utils.build_lookup_from_csv(
-                        args['climate_zone_table_path'], 'cz_id'))
-                month_label = MONTH_ID_TO_LABEL[month_id]
-                climate_zone_rain_events_month = dict([
-                    (cz_id, cz_rain_events_lookup[cz_id][month_label]) for
-                    cz_id in cz_rain_events_lookup])
-                n_events_nodata = -1
-                n_events_task = task_graph.add_task(
-                    func=geoprocessing.reclassify_raster,
-                    args=(
-                        (file_registry['cz_aligned_raster_path'], 1),
-                        climate_zone_rain_events_month,
-                        file_registry['n_events_path_list'][month_id],
-                        gdal.GDT_Float32, n_events_nodata,
-                        reclass_error_details),
-                    target_path_list=[
-                        file_registry['n_events_path_list'][month_id]],
-                    dependent_task_list=[align_task],
-                    task_name='n_events for month %d' % month_id)
-                reclassify_n_events_task_list.append(n_events_task)
-            else:
-                # rain_events_lookup defined near entry point of execute
-                n_events = rain_events_lookup[month_id+1]['events']
-                n_events_task = task_graph.add_task(
-                    func=geoprocessing.new_raster_from_base,
-                    args=(
-                        file_registry['dem_aligned_path'],
-                        file_registry['n_events_path_list'][month_id],
-                        gdal.GDT_Float32, [TARGET_NODATA]),
-                    kwargs={'fill_value_list': (n_events,)},
-                    target_path_list=[
-                        file_registry['n_events_path_list'][month_id]],
-                    dependent_task_list=[align_task],
-                    task_name=(
-                        'n_events as a constant raster month %d' % month_id))
-                reclassify_n_events_task_list.append(n_events_task)
+        if not args['user_defined_rain_events_path']:
+            LOGGER.info('loading number of monthly events')
+            reclassify_n_events_task_list = []
+            reclass_error_details = {
+                'raster_name': 'Climate Zone', 'column_name': 'cz_id',
+                'table_name': 'Climate Zone'}
+            # TODO: don't do if already defined
+            for month_id in range(N_MONTHS):
+                if args['user_defined_climate_zones']:
+                    cz_rain_events_lookup = (
+                        utils.build_lookup_from_csv(
+                            args['climate_zone_table_path'], 'cz_id'))
+                    month_label = MONTH_ID_TO_LABEL[month_id]
+                    climate_zone_rain_events_month = dict([
+                        (cz_id, cz_rain_events_lookup[cz_id][month_label]) for
+                        cz_id in cz_rain_events_lookup])
+                    n_events_nodata = -1
+                    n_events_task = task_graph.add_task(
+                        func=geoprocessing.reclassify_raster,
+                        args=(
+                            (file_registry['cz_aligned_raster_path'], 1),
+                            climate_zone_rain_events_month,
+                            file_registry['n_events_path_list'][month_id],
+                            gdal.GDT_Float32, n_events_nodata,
+                            reclass_error_details),
+                        target_path_list=[
+                            file_registry['n_events_path_list'][month_id]],
+                        dependent_task_list=[align_task],
+                        task_name='n_events for month %d' % month_id)
+                    reclassify_n_events_task_list.append(n_events_task)
+                else:
+                    # rain_events_lookup defined near entry point of execute
+                    n_events = rain_events_lookup[month_id+1]['events']
+                    n_events_task = task_graph.add_task(
+                        func=geoprocessing.new_raster_from_base,
+                        args=(
+                            file_registry['dem_aligned_path'],
+                            file_registry['n_events_path_list'][month_id],
+                            gdal.GDT_Float32, [TARGET_NODATA]),
+                        kwargs={'fill_value_list': (n_events,)},
+                        target_path_list=[
+                            file_registry['n_events_path_list'][month_id]],
+                        dependent_task_list=[align_task],
+                        task_name=(
+                            'n_events as a constant raster month %d' % month_id))
+                    reclassify_n_events_task_list.append(n_events_task)
 
         curve_number_task = task_graph.add_task(
             func=_calculate_curve_number_raster,
