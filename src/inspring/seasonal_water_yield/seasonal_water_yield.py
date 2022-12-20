@@ -1,5 +1,6 @@
 """InVEST Seasonal Water Yield Model."""
 import fractions
+import glob
 import logging
 import os
 import re
@@ -134,6 +135,8 @@ def execute(args):
         args['climate_zone_raster_path'] (string): required if
             args['user_defined_climate_zones'] is True, pixel values correspond
             to the "cz_id" values defined in args['climate_zone_table_path']
+        args['user_defined_rain_events_path'] (string): path to match a
+            pattern to user defined rain event rasters.
         args['monthly_alpha'] (boolean): if True, use the alpha
         args['monthly_alpha_path'] (string): required if args['monthly_alpha']
             is True. A CSV file.
@@ -168,7 +171,8 @@ def _execute(args):
 
     # fail early on a missing required rain events table
     if (not args['user_defined_local_recharge'] and
-            not args['user_defined_climate_zones']):
+            not args['user_defined_climate_zones'] and
+            not args['user_defined_rain_events_path']):
         rain_events_lookup = (
             utils.build_lookup_from_csv(
                 args['rain_events_table_path'], 'month'))
@@ -295,6 +299,23 @@ def _execute(args):
             file_registry['cz_aligned_raster_path'])
     interpolate_list = ['near'] * len(input_align_list)
 
+    if args['user_defined_rain_events_path']:
+        potential_rain_events_path_list = list(
+            glob.glob(args['user_defined_rain_events_path']))
+        if len(potential_rain_events_path_list) != 12:
+            raise ValueError(
+                f'user supplied user defined rain events path as '
+                f'{args["user_defined_rain_events_path"]} but matched more '
+                f'than 12 files {potential_rain_events_path_list}')
+        for month_id in range(12, 0, -1):
+            for index, path in enumerate(potential_rain_events_path_list):
+                if path.find(f'{month_id}') >= 0:
+                    input_align_list.append(path)
+                    output_align_list.append(
+                        file_registry['n_events_path_list'][month_id])
+                    break
+                potential_rain_events_path_list.pop(index)
+
     if 'prealigned' not in args or not args['prealigned']:
         vector_mask_options = {'mask_vector_path': args['watersheds_path']}
         align_task = task_graph.add_task(
@@ -389,13 +410,14 @@ def _execute(args):
             target_path_list=[file_registry['l_avail_path']],
             dependent_task_list=[align_task],
             task_name='l avail task')
-    else:
-        # user didn't predefine local recharge so calculate it
+    elif not args['user_defined_rain_events_path']:
+        # user didn't predefine local recharge or montly events so calculate it
         LOGGER.info('loading number of monthly events')
         reclassify_n_events_task_list = []
         reclass_error_details = {
             'raster_name': 'Climate Zone', 'column_name': 'cz_id',
             'table_name': 'Climate Zone'}
+        # TODO: don't do if already defined
         for month_id in range(N_MONTHS):
             if args['user_defined_climate_zones']:
                 cz_rain_events_lookup = (
