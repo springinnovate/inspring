@@ -356,11 +356,6 @@ def _execute(args):
                         break
 
         align_task = task_graph.add_task()
-    LOGGER.warning(
-        f"for workspace {args['workspace_dir']}\n"
-        f"resulting rain events path list: {file_registry['n_events_path_list']}\n"
-        f"args['user_defined_rain_events_path']: {args['user_defined_rain_events_path']}\n"
-        f"prealinged {args['prealigned']}\n")
 
     if 'single_outlet' in args and args['single_outlet'] is True:
         get_drain_sink_pixel_task = task_graph.add_task(
@@ -504,6 +499,11 @@ def _execute(args):
             task_name='calculate Si raster')
 
         quick_flow_task_list = []
+        LOGGER.warning(
+            f"for workspace {args['workspace_dir']}\n"
+            f"resulting rain events path list: {file_registry['n_events_path_list']}\n"
+            f"args['user_defined_rain_events_path']: {args['user_defined_rain_events_path']}\n"
+            f"prealinged {args['prealigned']}\n")
         for month_index in range(N_MONTHS):
             LOGGER.info('calculate quick flow for month %d', month_index+1)
             monthly_quick_flow_task = task_graph.add_task(
