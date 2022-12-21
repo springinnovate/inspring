@@ -359,7 +359,7 @@ def _execute(args):
     LOGGER.info(
         f"resulting rain events path list: {file_registry['n_events_path_list']}\n"
         f"args['user_defined_rain_events_path']: {args['user_defined_rain_events_path']}\n"
-        f"prealinged {args['prealinged']}\n")
+        f"prealinged {args['prealigned']}\n")
 
     if 'single_outlet' in args and args['single_outlet'] is True:
         get_drain_sink_pixel_task = task_graph.add_task(
