@@ -357,6 +357,7 @@ def _execute(args):
 
         align_task = task_graph.add_task()
     LOGGER.warning(
+        f"for workspace {args['workspace_dir']}\n"
         f"resulting rain events path list: {file_registry['n_events_path_list']}\n"
         f"args['user_defined_rain_events_path']: {args['user_defined_rain_events_path']}\n"
         f"prealinged {args['prealigned']}\n")
