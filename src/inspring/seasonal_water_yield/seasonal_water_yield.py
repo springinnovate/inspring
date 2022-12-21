@@ -793,8 +793,7 @@ def _calculate_monthly_quick_flow(
         # the 25.4 converts inches to mm since Si is in inches
         a_im = numpy.empty(valid_n_events.shape)
         a_im = p_im[valid_mask] / (valid_n_events * 25.4)
-        qf_im = numpy.empty(p_im.shape)
-        qf_im[:] = qf_nodata
+        qf_im = numpy.full(p_im.shape, qf_nodata)
 
         # Precompute the last two terms in quickflow so we can handle a
         # numerical instability when s_i is large and/or a_im is small
@@ -815,7 +814,7 @@ def _calculate_monthly_quick_flow(
             valid_si ** 2 / a_im * exp_result))
 
         # if precip is 0, then QF should be zero
-        qf_im[((p_im == 0) | (n_events == 0)) & valid_mask] = 0.0
+        qf_im[(p_im == 0) | (n_events == 0)] = 0.0
         # if we're on a stream, set quickflow to the precipitation
         valid_stream_precip_mask = stream_array == 1
         if p_nodata is not None:
@@ -828,6 +827,7 @@ def _calculate_monthly_quick_flow(
         # more intermediate outputs with nodata values guaranteed to be defined
         qf_im[numpy.isclose(qf_im, qf_nodata) &
               ~numpy.isclose(stream_array, stream_nodata)] = 0.0
+        qf_im[valid_mask] = qf_nodata
         return qf_im
 
     geoprocessing.raster_calculator(
