@@ -354,12 +354,12 @@ def _execute(args):
                 LOGGER.info(f'parsing out potential rain events path: {potential_rain_events_path_list}')
                 for index, path in enumerate(potential_rain_events_path_list):
                     if path.find(f'_{month_id:02d}') >= 0:
-                        LOGGER.warn(f'matched {path} to month {month_id}')
+                        LOGGER.warning(f'matched {path} to month {month_id}')
                         file_registry['n_events_path_list'][month_id-1] = path
                         reclassify_n_events_task_list.append(empty_task)
                         potential_rain_events_path_list.pop(index)
                         break
-                LOGGER.warn(f'final n_events_path_list for {args["workspace_dir"]}: {file_registry["n_events_path_list"]}')
+                LOGGER.warning(f'final n_events_path_list for {args["workspace_dir"]}: {file_registry["n_events_path_list"]}')
 
         align_task = task_graph.add_task()
 
