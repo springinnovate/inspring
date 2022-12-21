@@ -311,10 +311,10 @@ def _execute(args):
         empty_task = task_graph.add_task()
         for month_id in range(12, 0, -1):
             for index, path in enumerate(potential_rain_events_path_list):
-                LOGGER.warning(
-                    f'testing {index}:{path} for month {month_id}')
-                if path.find(f'{month_id}') >= 0:
-                    LOGGER.warning(f'found a match!!!')
+                # LOGGER.warning(
+                #     f'testing {index}:{path} for month {month_id}')
+                if path.find(f'_{month_id:02d}') >= 0:
+                    # LOGGER.warning(f'found a match!!!')
                     input_align_list.append(path)
                     output_align_list.append(
                         file_registry['n_events_path_list'][month_id-1])
@@ -502,11 +502,11 @@ def _execute(args):
             task_name='calculate Si raster')
 
         quick_flow_task_list = []
-        LOGGER.warning(
-            f"for workspace {args['workspace_dir']}\n"
-            f"resulting rain events path list: {file_registry['n_events_path_list']}\n"
-            f"args['user_defined_rain_events_path']: {args['user_defined_rain_events_path']}\n"
-            f"prealinged {args['prealigned']}\n")
+        # LOGGER.warning(
+        #     f"for workspace {args['workspace_dir']}\n"
+        #     f"resulting rain events path list: {file_registry['n_events_path_list']}\n"
+        #     f"args['user_defined_rain_events_path']: {args['user_defined_rain_events_path']}\n"
+        #     f"prealinged {args['prealigned']}\n")
         for month_index in range(N_MONTHS):
             LOGGER.info('calculate quick flow for month %d', month_index+1)
             monthly_quick_flow_task = task_graph.add_task(
