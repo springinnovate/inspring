@@ -354,9 +354,12 @@ def _execute(args):
                         file_registry['n_events_path_list'][month_id-1] = path
                         potential_rain_events_path_list.pop(index)
                         break
-            LOGGER.info(f"resulting rain events path list: {file_registry['n_events_path_list']}")
 
         align_task = task_graph.add_task()
+    LOGGER.info(
+        f"resulting rain events path list: {file_registry['n_events_path_list']}\n"
+        f"args['user_defined_rain_events_path']: {args['user_defined_rain_events_path']}\n"
+        f"prealinged {args['prealinged']}\n")
 
     if 'single_outlet' in args and args['single_outlet'] is True:
         get_drain_sink_pixel_task = task_graph.add_task(
