@@ -353,7 +353,7 @@ def _execute(args):
             for month_id in range(12, 0, -1):
                 LOGGER.info(f'parsing out potential rain events path: {potential_rain_events_path_list}')
                 for index, path in enumerate(potential_rain_events_path_list):
-                    if path.find(f'{month_id}') >= 0:
+                    if path.find(f'_{month_id:02d}') >= 0:
                         file_registry['n_events_path_list'][month_id-1] = path
                         reclassify_n_events_task_list.append(empty_task)
                         potential_rain_events_path_list.pop(index)
