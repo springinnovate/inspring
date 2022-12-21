@@ -828,7 +828,7 @@ def _calculate_monthly_quick_flow(
         qf_im[numpy.isclose(qf_im, qf_nodata) &
               ~numpy.isclose(stream_array, stream_nodata)] = 0.0
         LOGGER.error(f'valid mask debugging, size: {valid_mask.size} true: {numpy.count_nonzero(valid_mask)}, nodata: {qf_nodata} mask {valid_mask}')
-        qf_im[valid_mask] = qf_nodata
+        qf_im[~valid_mask] = qf_nodata
         return qf_im
 
     geoprocessing.raster_calculator(
