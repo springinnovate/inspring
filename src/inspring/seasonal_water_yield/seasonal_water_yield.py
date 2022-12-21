@@ -311,7 +311,10 @@ def _execute(args):
         empty_task = task_graph.add_task()
         for month_id in range(12, 0, -1):
             for index, path in enumerate(potential_rain_events_path_list):
+                LOGGER.warn(
+                    f'testing {index}:{path} for month {month_id}')
                 if path.find(f'{month_id}') >= 0:
+                    LOGGER.warn(f'found a match!!!')
                     input_align_list.append(path)
                     output_align_list.append(
                         file_registry['n_events_path_list'][month_id-1])
