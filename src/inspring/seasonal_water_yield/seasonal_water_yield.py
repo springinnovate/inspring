@@ -815,7 +815,7 @@ def _calculate_monthly_quick_flow(
             valid_si ** 2 / a_im * exp_result))
 
         # if precip is 0, then QF should be zero
-        qf_im[(p_im == 0) | (n_events == 0)] = 0.0
+        qf_im[((p_im == 0) | (n_events == 0)) & valid_mask] = 0.0
         # if we're on a stream, set quickflow to the precipitation
         valid_stream_precip_mask = stream_array == 1
         if p_nodata is not None:
