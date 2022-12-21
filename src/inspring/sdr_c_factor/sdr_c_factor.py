@@ -1184,7 +1184,7 @@ def _calculate_e_prime(usle_path, sdr_path, target_e_prime):
 def _calculate_sed_retention_index(
         rkls_path, usle_path, sdr_path, sdr_max,
         out_sed_retention_index_path):
-    """Calculate (rkls-usle) * sdr  / sdr_max."""
+    """Calculate real index (usle/rkls)."""
     def sediment_index_op(rkls, usle, sdr_factor):
         """Calculate sediment retention index."""
         valid_mask = (
@@ -1192,9 +1192,7 @@ def _calculate_sed_retention_index(
             (sdr_factor != _TARGET_NODATA))
         result = numpy.empty(valid_mask.shape, dtype=numpy.float32)
         result[:] = _TARGET_NODATA
-        result[valid_mask] = (
-            (rkls[valid_mask] - usle[valid_mask]) *
-            sdr_factor[valid_mask] / sdr_max)
+        result[valid_mask] = (usle[valid_mask] / rkls[valid_mask])
         return result
 
     geoprocessing.raster_calculator(
