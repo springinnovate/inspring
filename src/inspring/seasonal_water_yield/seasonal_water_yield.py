@@ -348,11 +348,13 @@ def _execute(args):
                     f'matched {len(potential_rain_events_path_list)} files')
             empty_task = task_graph.add_task()
             for month_id in range(12, 0, -1):
+                LOGGER.info(f'parsing out potential rain events path: {potential_rain_events_path_list}')
                 for index, path in enumerate(potential_rain_events_path_list):
                     if path.find(f'{month_id}') >= 0:
                         file_registry['n_events_path_list'][month_id-1] = path
                         potential_rain_events_path_list.pop(index)
                         break
+            LOGGER.info(f"resulting rain events path list: {file_registry['n_events_path_list']}")
 
         align_task = task_graph.add_task()
 
