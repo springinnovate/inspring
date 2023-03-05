@@ -142,6 +142,9 @@ def execute(args):
             is True. A CSV file.
         args['prealigned'] (bool): if true, input rasters are already aligned
             and projected.
+        args['max_pixel_fill_count'] (int): (optional), if provided limits the
+            flood fill pixel count to this value when determining if the DEM
+            has a pit. Useful on landscapes that have natural depressions.
 
     Returns:
         None.
@@ -389,7 +392,9 @@ def _execute(args):
             file_registry['dem_pit_filled_path']),
         kwargs={
             'working_dir': cache_dir,
-            'max_pixel_fill_count': -1,
+            'max_pixel_fill_count': (
+                -1 if 'max_pixel_fill_count' not in args
+                else int(args['max_pixel_fill_count']),
             'single_outlet_tuple': single_outlet_tuple},
         target_path_list=[file_registry['dem_pit_filled_path']],
         dependent_task_list=[align_task],
