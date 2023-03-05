@@ -394,7 +394,7 @@ def _execute(args):
             'working_dir': cache_dir,
             'max_pixel_fill_count': (
                 -1 if 'max_pixel_fill_count' not in args
-                else int(args['max_pixel_fill_count']),
+                else int(args['max_pixel_fill_count'])),
             'single_outlet_tuple': single_outlet_tuple},
         target_path_list=[file_registry['dem_pit_filled_path']],
         dependent_task_list=[align_task],
