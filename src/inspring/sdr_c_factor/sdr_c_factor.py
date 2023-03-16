@@ -9,11 +9,8 @@ The SDR method in this model is based on:
 """
 import os
 import logging
-import shutil
-import tempfile
 
 from osgeo import gdal
-from osgeo import ogr
 import numpy
 
 from ecoshard import taskgraph
@@ -58,12 +55,11 @@ _INTERMEDIATE_BASE_FILES = {
     'sdr_path': 'sdr_factor.tif',
     'slope_path': 'slope.tif',
     'thresholded_slope_path': 'slope_threshold.tif',
-    'thresholded_w_path': 'w_threshold.tif',
-    'w_accumulation_path': 'w_accumulation.tif',
-    'w_bar_path': 'w_bar.tif',
-    'w_path': 'w.tif',
-    'ws_factor_path': 'ws_factor.tif',
-    'ws_inverse_path': 'ws_inverse.tif',
+    'thresholded_c_path': 'c_threshold.tif',
+    'c_accumulation_path': 'c_accumulation.tif',
+    'c_bar_path': 'c_bar.tif',
+    'c_path': 'w.tif',
+    'cs_inverse_path': 'ws_inverse.tif',
     'e_prime_path': 'e_prime.tif',
     }
 
@@ -74,12 +70,73 @@ _TMP_BASE_FILES = {
     'aligned_erosivity_path': 'aligned_erosivity.tif',
     'aligned_lulc_path': 'aligned_lulc.tif',
     'aligned_c_factor_path': 'aligned_c_factor.tif',
+    'usle_c': 'usle_c.tif',
+    'usle_p': 'usle_p.tif',
     }
 
 # Target nodata is for general rasters that are positive, and _IC_NODATA are
 # for rasters that are any range
 _TARGET_NODATA = -1.0
 _IC_NODATA = float(numpy.finfo('float32').min)
+
+# This dictionary translates headers in the biophysical table to potential
+# hard-coded raster paths that can be passed in
+_BIOPHYSICAL_TABLE_FIELDS_PATH_MAP = {
+    'usle_c': 'usle_c_path',
+    'usle_p': 'usle_p_path',
+    }
+
+
+def _reclassify_or_clip(
+        key_field, biophysical_table_path, lulc_raster_path, args,
+        target_raster_info, f_reg):
+    """Either reclassify lulc with key_field, or reference base input.
+
+    Args:
+        key_field (str): a field that is either a column in
+            `biophysical_table_path`, or the prefix to `{key_field}_path` in
+            `args` dictionary.
+        base_raster_path (str): path to a raster to use to frame how large
+            a potential target raster should be
+        aoi_path (str): if not None, a vector to further limit target bounding
+            box size
+        biophysical_table_path (str): if not None, lookup table containing
+            reference to `key_field` and lulc_field for reclassification.
+        lulc_field (str): column in `biophysical_table_path` to use as a
+            lookup from the `lulc_raster_path` values to `key_field` values
+        lulc_raster_path (str): if not None, reference to raster that is used
+            to reclassify from
+        args (dict): base model argument dictionary, used to look up _path
+        target_raster_info (dict): dictionary to use for desired target
+            projection, bounding box, pixel size, etc, in case raster must
+            be warped.
+        f_reg (dict): file registry, index into to find the desired target
+            path for a file
+
+    Returns:
+        path to raster to use for biophysical component.
+    """
+    key_path = f'{key_field}_path'
+    if key_path in args:
+        geoprocessing.warp_raster(
+            args[key_path], target_raster_info['pixel_size'], f_reg[key_path],
+            'bilinear', target_bb=target_raster_info['bounding_box'],
+            target_projection_wkt=target_raster_info['projection_wkt'],
+            working_dir=os.path.dirname(f_reg['key_path']))
+        return f_reg['key_path']
+
+    lufield_id = args.get('biophysical_table_lucode_field', 'lucode')
+    biophysical_table = utils.build_lookup_from_csv(
+        args['biophysical_table_path'], lufield_id)
+
+    lulc_to_val = dict(
+        [(lulc_code, float(table[key_field])) for
+         (lulc_code, table) in biophysical_table.items()])
+
+    geoprocessing.reclassify_raster(
+        (lulc_raster_path, 1), lulc_to_val, f_reg[key_field], gdal.GDT_Float32,
+        _TARGET_NODATA)
+    return f_reg[key_field]
 
 
 def execute(args):
@@ -103,6 +160,10 @@ def execute(args):
         args['biophysical_table_path'] (string): path to CSV file with
             biophysical information of each land use classes.  contain the
             fields 'usle_c' and 'usle_p'
+        args['usle_c_path'], args['usle_p_path'] (string): if either of these
+            are passed in they are used instead of their equivalent field in
+            the biophysical table. If BOTH are passed in then 'lulc_path' and
+            args['biophysical_table_path'] are not required.
         args['threshold_flow_accumulation'] (number): number of upstream pixels
             on the dem to threshold to a stream.
         args['k_param'] (number): k calibration parameter
@@ -138,31 +199,9 @@ def execute(args):
 
     """
     file_suffix = utils.make_suffix_string(args, 'results_suffix')
-    lufield_id = 'lucode'
-    if 'biophysical_table_lucode_field' in args:
-        lufield_id = args['biophysical_table_lucode_field']
-    biophysical_table = utils.build_lookup_from_csv(
-        args['biophysical_table_path'], lufield_id)
-
     l_cap = _DEFAULT_L_CAP
     if 'l_cap' in args:
         l_cap = args['l_cap']
-
-    # Test to see if c or p values are outside of 0..1
-    for table_key in ['usle_c', 'usle_p']:
-        for (lulc_code, table) in biophysical_table.items():
-            try:
-                float_value = float(table[table_key])
-                if float_value < 0 or float_value > 1:
-                    raise ValueError(
-                        'Value should be within range 0..1 offending value '
-                        'table %s, lulc_code %s, value %s' % (
-                            table_key, str(lulc_code), str(float_value)))
-            except ValueError:
-                raise ValueError(
-                    'Value is not a floating point value within range 0..1 '
-                    'offending value table %s, lulc_code %s, value %s' % (
-                        table_key, str(lulc_code), table[table_key]))
 
     intermediate_output_dir = os.path.join(
         args['workspace_dir'], 'intermediate_outputs')
@@ -200,13 +239,18 @@ def execute(args):
     base_list = []
     aligned_list = []
     aligned_key_list = []
-    for file_key in ['dem', 'lulc', 'erosivity', 'erodibility']:
+    for file_key in ['dem', 'erosivity', 'erodibility']:
         base_list.append(args[file_key + "_path"])
         aligned_list.append(f_reg["aligned_" + file_key + "_path"])
         aligned_key_list.append(
             (file_key + "_path", "aligned_" + file_key + "_path"))
-    # all continuous rasters can use bilinaer, but lulc should be mode
-    interpolation_list = ['bilinear', 'mode', 'bilinear', 'bilinear']
+    # all continuous rasters can use bilinear, but lulc should be mode
+    interpolation_list = ['bilinear', 'bilinear', 'bilinear']
+    lulc_path = args.get('lulc_path', None)
+    if lulc_path is not None:
+        base_list.append(lulc_path)
+        aligned_list.append(f_reg['aligned_lulc_path'])
+        aligned_key_list.append(('lulc_path', 'aligned_lulc_path'))
 
     drainage_present = False
     if 'drainage_path' in args and args['drainage_path'] != '':
@@ -216,26 +260,14 @@ def execute(args):
         aligned_key_list.append(('drainage_path', 'aligned_drainage_path'))
         interpolation_list.append('near')
 
-    c_factor_present = False
-    if 'c_factor_path' in args and args['c_factor_path']:
-        c_factor_present = True
-        base_list.append(args['c_factor_path'])
-        aligned_list.append(f_reg['aligned_c_factor_path'])
-        aligned_key_list.append(('c_factor_path', 'aligned_c_factor_path'))
-        interpolation_list.append('near')
-
     dem_raster_info = geoprocessing.get_raster_info(args['dem_path'])
     min_pixel_size = numpy.min(numpy.abs(dem_raster_info['pixel_size']))
+    target_pixel_size = args.get(
+        'target_pixel_size', (min_pixel_size, -min_pixel_size))
+    target_projection_wkt = args.get(
+        'target_projection_wkt', dem_raster_info['projection_wkt'])
 
-    if 'target_pixel_size' in args:
-        target_pixel_size = args['target_pixel_size']
-    else:
-        target_pixel_size = (min_pixel_size, -min_pixel_size)
-
-    if 'target_projection_wkt' in args:
-        target_projection_wkt = args['target_projection_wkt']
-    else:
-        target_projection_wkt = dem_raster_info['projection_wkt']
+    # determine bounding box, and then create c/p factor rasters
 
     if 'prealigned' not in args or not args['prealigned']:
         vector_mask_options = {'mask_vector_path': args['watersheds_path']}
@@ -252,6 +284,7 @@ def execute(args):
                 },
             target_path_list=aligned_list,
             task_name='align input rasters')
+        align_task.join()
     else:
         # the aligned stuff is the base stuff
         for base_key, aligned_key in aligned_key_list:
@@ -361,24 +394,35 @@ def execute(args):
     else:
         drainage_raster_path_task = (f_reg['stream_path'], stream_task)
 
-    threshold_w_task = task_graph.add_task(
-        func=_calculate_w,
-        args=(
-            biophysical_table, f_reg['aligned_lulc_path'], f_reg['w_path'],
-            f_reg['thresholded_w_path']),
-        target_path_list=[f_reg['w_path'], f_reg['thresholded_w_path']],
-        dependent_task_list=[align_task],
-        task_name='calculate W')
+    # TODO: calculate c_path here
+    raster_info = geoprocessing.get_raster_info(f_reg['aligned_dem_path'])
+    usle_factor_dict = {}
+    for usle_key in ['usle_c', 'usle_p']:
+        usle_task = task_graph.add_task(
+            func=_reclassify_or_clip,
+            args=(
+                usle_key, args.get('biophysical_table_path', None),
+                f_reg.get('aligned_lulc_path', None), args, raster_info,
+                f_reg),
+            store_result=True,
+            task_name=f'reclassify or warp {usle_key}')
+        usle_factor_dict[usle_key] = usle_task
 
-    c_factor_path = None
-    if c_factor_present:
-        c_factor_path = f_reg['aligned_c_factor_path']
+    threshold_c_task = task_graph.add_task(
+        func=_threshold_c,
+        args=(
+            usle_factor_dict['usle_c'].get(),
+            f_reg['thresholded_c_path']),
+        target_path_list=[f_reg['thresholded_c_path']],
+        dependent_task_list=[align_task],
+        task_name='calculate thresholded C')
+
     cp_task = task_graph.add_task(
         func=_calculate_cp,
         args=(
-            biophysical_table, f_reg['aligned_lulc_path'],
+            f_reg['thresholded_c_path'],
+            usle_factor_dict['usle_p'].get(),
             f_reg['cp_factor_path']),
-        kwargs={'c_factor_path': c_factor_path},
         target_path_list=[f_reg['cp_factor_path']],
         dependent_task_list=[align_task],
         task_name='calculate CP')
@@ -410,10 +454,10 @@ def execute(args):
 
     bar_task_map = {}
     for factor_path, factor_task, accumulation_path, out_bar_path, bar_id in [
-            (f_reg['thresholded_w_path'], threshold_w_task,
-             f_reg['w_accumulation_path'],
-             f_reg['w_bar_path'],
-             'w_bar'),
+            (f_reg['thresholded_c_path'], threshold_c_task,
+             f_reg['c_accumulation_path'],
+             f_reg['c_bar_path'],
+             'c_bar'),
             (f_reg['thresholded_slope_path'], threshold_slope_task,
              f_reg['s_accumulation_path'],
              f_reg['s_bar_path'],
@@ -436,21 +480,21 @@ def execute(args):
     d_up_task = task_graph.add_task(
         func=_calculate_d_up,
         args=(
-            f_reg['w_bar_path'], f_reg['s_bar_path'],
+            f_reg['c_bar_path'], f_reg['s_bar_path'],
             f_reg['flow_accumulation_path'], f_reg['d_up_path']),
         target_path_list=[f_reg['d_up_path']],
         dependent_task_list=[
-            bar_task_map['s_bar'], bar_task_map['w_bar'],
+            bar_task_map['s_bar'], bar_task_map['c_bar'],
             flow_accumulation_task],
         task_name='calculate Dup')
 
-    inverse_ws_factor_task = task_graph.add_task(
-        func=_calculate_inverse_ws_factor,
+    inverse_cs_factor_task = task_graph.add_task(
+        func=_calculate_inverse_cs_factor,
         args=(
-            f_reg['thresholded_slope_path'], f_reg['thresholded_w_path'],
-            f_reg['ws_inverse_path']),
-        target_path_list=[f_reg['ws_inverse_path']],
-        dependent_task_list=[threshold_slope_task, threshold_w_task],
+            f_reg['thresholded_slope_path'], f_reg['thresholded_c_path'],
+            f_reg['cs_inverse_path']),
+        target_path_list=[f_reg['cs_inverse_path']],
+        dependent_task_list=[threshold_slope_task, threshold_c_task],
         task_name='calculate inverse ws factor')
 
     d_dn_task = task_graph.add_task(
@@ -459,11 +503,11 @@ def execute(args):
             (f_reg['flow_direction_path'], 1),
             (drainage_raster_path_task[0], 1),
             f_reg['d_dn_path']),
-        kwargs={'weight_raster_path_band': (f_reg['ws_inverse_path'], 1)},
+        kwargs={'weight_raster_path_band': (f_reg['cs_inverse_path'], 1)},
         target_path_list=[f_reg['d_dn_path']],
         dependent_task_list=[
             flow_dir_task, drainage_raster_path_task[1],
-            inverse_ws_factor_task],
+            inverse_cs_factor_task],
         task_name='calculating d_dn')
 
     ic_task = task_graph.add_task(
@@ -484,7 +528,7 @@ def execute(args):
         dependent_task_list=[ic_task],
         task_name='calculate sdr')
 
-    sed_export_task = task_graph.add_task(
+    _ = task_graph.add_task(
         func=_calculate_sed_export,
         args=(
             f_reg['usle_path'], f_reg['sdr_path'], f_reg['sed_export_path']),
@@ -567,7 +611,7 @@ def execute(args):
         dependent_task_list=[ic_bare_task, drainage_raster_path_task[1]],
         task_name='calculate bare SDR')
 
-    sed_retention_task = task_graph.add_task(
+    _ = task_graph.add_task(
         func=_calculate_sed_retention,
         args=(
             f_reg['rkls_path'], f_reg['usle_path'],
@@ -581,23 +625,6 @@ def execute(args):
 
     task_graph.close()
     task_graph.join()
-
-
-def _calculate_wishmeier_smith_ls():
-    """."""
-    pass
-     # {   // Wischmeier and Smith
-     #    if( Slope > 0.0505 )    // >  ca. 3°
-     #    {
-     #        LS  = sqrt(SCA / 22.13)
-     #            * (65.41 * sin_Slope * sin_Slope + 4.56 * sin_Slope + 0.065);
-     #    }
-     #    else                    // <= ca. 3°
-     #    {
-     #        LS  = pow (SCA / 22.13, 3. * pow(Slope, 0.6))
-     #            * (65.41 * sin_Slope * sin_Slope + 4.56 * sin_Slope + 0.065);
-     #    }
-     #    break; }
 
 
 def _calculate_ls_factor(
@@ -835,100 +862,54 @@ def _add_drainage(stream_path, drainage_path, out_stream_and_drainage_path):
         out_stream_and_drainage_path, gdal.GDT_Byte, stream_nodata)
 
 
-def _calculate_w(
-        biophysical_table, lulc_path, w_factor_path,
-        out_thresholded_w_factor_path):
+def _threshold_c(
+        usle_c_path, target_threshold_c_factor_path):
     """W factor: map C values from LULC and lower threshold to 0.001.
 
     W is a factor in calculating d_up accumulation for SDR.
 
     Parameters:
-        biophysical_table (dict): map of LULC codes to dictionaries that
-            contain at least a 'usle_c' field
-        lulc_path (string): path to LULC raster
-        w_factor_path (string): path to outputed raw W factor
-        out_thresholded_w_factor_path (string): W factor from `w_factor_path`
+        usle_c_path (str): path to usle raster
+        target_threshold_c_factor_path (str): W factor from `w_factor_path`
             thresholded to be no less than 0.001.
 
     Returns:
         None
 
     """
-    lulc_to_c = dict(
-        [(lulc_code, float(table['usle_c'])) for
-         (lulc_code, table) in biophysical_table.items()])
-    if geoprocessing.get_raster_info(lulc_path)['nodata'][0] is None:
-        # will get a case where the raster might be masked but nothing to
-        # replace so 0 is used by default. Ensure this exists in lookup.
-        if 0 not in lulc_to_c:
-            lulc_to_c = lulc_to_c.copy()
-            lulc_to_c[0] = 0.0
-
-    geoprocessing.reclassify_raster(
-        (lulc_path, 1), lulc_to_c, w_factor_path, gdal.GDT_Float32,
-        _TARGET_NODATA, values_required=True)
-
-    def threshold_w(w_val):
-        """Threshold w to 0.001."""
-        w_val_copy = w_val.copy()
-        nodata_mask = w_val == _TARGET_NODATA
-        w_val_copy[w_val < 0.001] = 0.001
-        w_val_copy[nodata_mask] = _TARGET_NODATA
-        return w_val_copy
+    def threshold_c(c_val):
+        """Threshold c to 0.001."""
+        result = c_val.copy()
+        valid_mask = c_val != _TARGET_NODATA
+        result[(c_val < 0.001) & valid_mask] = 0.001
+        return result
 
     geoprocessing.raster_calculator(
-        [(w_factor_path, 1)], threshold_w, out_thresholded_w_factor_path,
+        [(usle_c_path, 1)], threshold_c, target_threshold_c_factor_path,
         gdal.GDT_Float32, _TARGET_NODATA)
 
 
 def _calculate_cp(
-        biophysical_table, lulc_path, cp_factor_path, c_factor_path=None):
+        usle_c_path, usle_p_path, target_cp_factor_path):
     """Map LULC to C*P value.
 
     Parameters:
-        biophysical_table (dict): map of lulc codes to dictionaries that
-            contain at least the entry 'usle_c" and 'usle_p' corresponding to
-            those USLE components.
-        lulc_path (string): path to LULC raster
-        cp_factor_path (string): path to output raster of LULC mapped to C*P
-            values
-        c_factor_path (str): if not None, use this raster as the C factor
-            instead of inferring one from the biophysical table. If not None,
-            this raster will be aligned to the `lulc_path`.
+        c_factor_path (str): path to c factor raster
+        p_factor_path (str): path to p factor raster
+        target_cp_factor_path (str): target C*P raster
 
     Returns:
         None
 
     """
-    # this uses `usle_c` filed if c_factor_path is not present
-    lulc_to_cp = {
-        lulc_code:
-            (float(table['usle_c']) if not c_factor_path else 1.0) *
-            float(table['usle_p'])
-            for (lulc_code, table) in biophysical_table.items()}
-
-    if geoprocessing.get_raster_info(lulc_path)['nodata'][0] is None:
-        # will get a case where the raster might be masked but nothing to
-        # replace so 0 is used by default. Ensure this exists in lookup.
-        if 0 not in lulc_to_cp:
-            lulc_to_cp[0] = 0.0
-    geoprocessing.reclassify_raster(
-        (lulc_path, 1), lulc_to_cp, cp_factor_path, gdal.GDT_Float32,
-        _TARGET_NODATA, values_required=True)
-
-    if c_factor_path:
-        f, tmp_cp_factor_path = tempfile.mkstemp(
-            suffix='.tif', dir=os.path.dirname(cp_factor_path))
-        os.close(f)
-        shutil.copyfile(cp_factor_path, tmp_cp_factor_path)
-        c_factor_nodata = geoprocessing.get_raster_info(
-            c_factor_path)['nodata'][0]
-        geoprocessing.raster_calculator(
-            [(tmp_cp_factor_path, 1), (c_factor_path, 1),
-             (_TARGET_NODATA, 'raw'), (c_factor_nodata, 'raw'),
-             (_TARGET_NODATA, 'raw')],
-            _multiply_op, cp_factor_path, gdal.GDT_Float32, _TARGET_NODATA)
-        os.remove(tmp_cp_factor_path)
+    def _local_mult_op(usle_c, usle_p):
+        result = usle_c.copy()
+        valid_mask = usle_p != _TARGET_NODATA
+        result[valid_mask] *= usle_p[valid_mask]
+    geoprocessing.raster_calculator(
+        [(usle_c_path, 1), (usle_p_path, 1)],
+        _local_mult_op, target_cp_factor_path, gdal.GDT_Float32,
+        _TARGET_NODATA)
 
 
 def _multiply_op(array_a, array_b, nodata_a, nodata_b, result_nodata):
@@ -1013,32 +994,32 @@ def _calculate_bar_factor(
 
 
 def _calculate_d_up(
-        w_bar_path, s_bar_path, flow_accumulation_path, out_d_up_path):
-    """Calculate w_bar * s_bar * sqrt(flow accumulation * cell area)."""
+        c_bar_path, s_bar_path, flow_accumulation_path, out_d_up_path):
+    """Calculate c_bar * s_bar * sqrt(flow accumulation * cell area)."""
     cell_area = abs(
-        geoprocessing.get_raster_info(w_bar_path)['pixel_size'][0])**2
+        geoprocessing.get_raster_info(c_bar_path)['pixel_size'][0])**2
     flow_accumulation_nodata = geoprocessing.get_raster_info(
         flow_accumulation_path)['nodata'][0]
 
-    def d_up_op(w_bar, s_bar, flow_accumulation):
+    def d_up_op(c_bar, s_bar, flow_accumulation):
         """Calculate the d_up index.
 
-        w_bar * s_bar * sqrt(upstream area)
+        c_bar * s_bar * sqrt(upstream area)
 
         """
         valid_mask = (
-            (w_bar != _TARGET_NODATA) & (s_bar != _TARGET_NODATA) &
+            (c_bar != _TARGET_NODATA) & (s_bar != _TARGET_NODATA) &
             (flow_accumulation != flow_accumulation_nodata))
         d_up_array = numpy.empty(valid_mask.shape, dtype=numpy.float32)
         d_up_array[:] = _TARGET_NODATA
         d_up_array[valid_mask] = (
-            w_bar[valid_mask] * s_bar[valid_mask] * numpy.sqrt(
+            c_bar[valid_mask] * s_bar[valid_mask] * numpy.sqrt(
                 flow_accumulation[valid_mask] * cell_area))
         return d_up_array
 
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
-            w_bar_path, s_bar_path, flow_accumulation_path]], d_up_op,
+            c_bar_path, s_bar_path, flow_accumulation_path]], d_up_op,
         out_d_up_path, gdal.GDT_Float32, _TARGET_NODATA)
 
 
@@ -1071,7 +1052,7 @@ def _calculate_d_up_bare(
         out_d_up_bare_path, gdal.GDT_Float32, _TARGET_NODATA)
 
 
-def _calculate_inverse_ws_factor(
+def _calculate_inverse_cs_factor(
         thresholded_slope_path, thresholded_w_factor_path,
         out_ws_factor_inverse_path):
     """Calculate 1/(w*s)."""
