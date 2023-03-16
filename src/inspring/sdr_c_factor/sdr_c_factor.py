@@ -70,8 +70,8 @@ _TMP_BASE_FILES = {
     'aligned_erosivity_path': 'aligned_erosivity.tif',
     'aligned_lulc_path': 'aligned_lulc.tif',
     'aligned_c_factor_path': 'aligned_c_factor.tif',
-    'usle_c': 'usle_c.tif',
-    'usle_p': 'usle_p.tif',
+    'usle_c_path': 'usle_c.tif',
+    'usle_p_path': 'usle_p.tif',
     }
 
 # Target nodata is for general rasters that are positive, and _IC_NODATA are
@@ -122,8 +122,13 @@ def _reclassify_or_clip(
             args[key_path], target_raster_info['pixel_size'], f_reg[key_path],
             'bilinear', target_bb=target_raster_info['bounding_box'],
             target_projection_wkt=target_raster_info['projection_wkt'],
-            working_dir=os.path.dirname(f_reg['key_path']))
-        return f_reg['key_path']
+            working_dir=os.path.dirname(f_reg[key_path]))
+        return f_reg[key_path]
+
+    if args['biophysical_table_path'] is None:
+        raise ValueError(
+            f'Neither {key_field} or "biophysical_table_path" were defined in '
+            f'args, one must be defined. value of args: {args}')
 
     lufield_id = args.get('biophysical_table_lucode_field', 'lucode')
     biophysical_table = utils.build_lookup_from_csv(
@@ -906,6 +911,7 @@ def _calculate_cp(
         result = usle_c.copy()
         valid_mask = usle_p != _TARGET_NODATA
         result[valid_mask] *= usle_p[valid_mask]
+        return result
     geoprocessing.raster_calculator(
         [(usle_c_path, 1), (usle_p_path, 1)],
         _local_mult_op, target_cp_factor_path, gdal.GDT_Float32,
