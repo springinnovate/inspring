@@ -72,6 +72,63 @@ _TMP_BASE_FILES = {
 }
 
 
+def _reclassify_or_clip(
+        key_field, biophysical_table_path, lulc_raster_path, args,
+        target_raster_info, f_reg):
+    """Either reclassify lulc with key_field, or reference base input.
+
+    Args:
+        key_field (str): a field that is either a column in
+            `biophysical_table_path`, or the prefix to `{key_field}_path` in
+            `args` dictionary.
+        base_raster_path (str): path to a raster to use to frame how large
+            a potential target raster should be
+        aoi_path (str): if not None, a vector to further limit target bounding
+            box size
+        biophysical_table_path (str): if not None, lookup table containing
+            reference to `key_field` and lulc_field for reclassification.
+        lulc_field (str): column in `biophysical_table_path` to use as a
+            lookup from the `lulc_raster_path` values to `key_field` values
+        lulc_raster_path (str): if not None, reference to raster that is used
+            to reclassify from
+        args (dict): base model argument dictionary, used to look up _path
+        target_raster_info (dict): dictionary to use for desired target
+            projection, bounding box, pixel size, etc, in case raster must
+            be warped.
+        f_reg (dict): file registry, index into to find the desired target
+            path for a file
+
+    Returns:
+        path to raster to use for biophysical component.
+    """
+    key_path = f'{key_field}_path'
+    if key_path in args:
+        geoprocessing.warp_raster(
+            args[key_path], target_raster_info['pixel_size'], f_reg[key_path],
+            'bilinear', target_bb=target_raster_info['bounding_box'],
+            target_projection_wkt=target_raster_info['projection_wkt'],
+            working_dir=os.path.dirname(f_reg[key_path]))
+        return f_reg[key_path]
+
+    if args['biophysical_table_path'] is None:
+        raise ValueError(
+            f'Neither {key_field} or "biophysical_table_path" were defined in '
+            f'args, one must be defined. value of args: {args}')
+
+    lufield_id = args.get('biophysical_table_lucode_field', 'lucode')
+    biophysical_table = utils.build_lookup_from_csv(
+        args['biophysical_table_path'], lufield_id)
+
+    lulc_to_val = dict(
+        [(lulc_code, float(table[key_field])) for
+         (lulc_code, table) in biophysical_table.items()])
+
+    geoprocessing.reclassify_raster(
+        (lulc_raster_path, 1), lulc_to_val, f_reg[key_field], gdal.GDT_Float32,
+        TARGET_NODATA)
+    return f_reg[key_field]
+
+
 def execute(args):
     """Seasonal Water Yield.
 
@@ -180,28 +237,28 @@ def _execute(args):
             utils.build_lookup_from_csv(
                 args['rain_events_table_path'], 'month'))
 
-    biophysical_table = utils.build_lookup_from_csv(
-        args['biophysical_table_path'], args['lucode_field'])
+    # biophysical_table = utils.build_lookup_from_csv(
+    #     args['biophysical_table_path'], args['lucode_field'])
 
-    bad_value_list = []
-    for lucode, value in biophysical_table.items():
-        for biophysical_id in ['cn_a', 'cn_b', 'cn_c', 'cn_d'] + [
-                'kc_%d' % (month_index+1) for month_index in range(N_MONTHS)]:
-            try:
-                _ = float(value[biophysical_id])
-            except ValueError:
-                bad_value_list.append(
-                    (biophysical_id, lucode, value[biophysical_id]))
+    # bad_value_list = []
+    # for lucode, value in biophysical_table.items():
+    #     for biophysical_id in ['cn_a', 'cn_b', 'cn_c', 'cn_d'] + [
+    #             'kc_%d' % (month_index+1) for month_index in range(N_MONTHS)]:
+    #         try:
+    #             _ = float(value[biophysical_id])
+    #         except ValueError:
+    #             bad_value_list.append(
+    #                 (biophysical_id, lucode, value[biophysical_id]))
 
-    if bad_value_list:
-        raise ValueError(
-            'biophysical_table at %s seems to have the following incorrect '
-            'values (expecting all floating point numbers): %s' % (
-                args['biophysical_table_path'], ','.join(
-                    ['%s(lucode %d): "%s"' % (
-                        lucode, biophysical_id, bad_value)
-                     for code, biophysical_id, bad_value in
-                        bad_value_list])))
+    # if bad_value_list:
+    #     raise ValueError(
+    #         'biophysical_table at %s seems to have the following incorrect '
+    #         'values (expecting all floating point numbers): %s' % (
+    #             args['biophysical_table_path'], ','.join(
+    #                 ['%s(lucode %d): "%s"' % (
+    #                     lucode, biophysical_id, bad_value)
+    #                  for code, biophysical_id, bad_value in
+    #                     bad_value_list])))
 
     if args['monthly_alpha']:
         # parse out the alpha lookup table of the form (month_id: alpha_val)
@@ -366,6 +423,26 @@ def _execute(args):
 
         align_task = task_graph.add_task()
 
+    raster_info = geoprocessing.get_raster_info(
+        file_registry['dem_aligned_path'])
+    biophysical_factor_dict = {}
+    for biophysical_key in [
+            'root_depth', 'CN_A', 'CN_B', 'CN_C', 'CN_D', 'Kc_1', 'Kc_2',
+            'Kc_3', 'Kc_4', 'Kc_5', 'Kc_6', 'Kc_7', 'Kc_8', 'Kc_9', 'Kc_10',
+            'Kc_11', 'Kc_12']:
+        reclassify_clip_task = task_graph.add_task(
+            func=_reclassify_or_clip,
+            args=(
+                biophysical_key, args.get('biophysical_table_path', None),
+                file_registry.get('lulc_aligned_path', None), args,
+                raster_info, file_registry),
+            store_result=True,
+            task_name=f'reclassify or warp {biophysical_key}')
+        biophysical_factor_dict[biophysical_key] = reclassify_clip_task
+    # load all the results
+    for key, task in list(biophysical_factor_dict.items()):
+        biophysical_factor_dict[key] = task.get()
+
     if 'single_outlet' in args and args['single_outlet'] is True:
         get_drain_sink_pixel_task = task_graph.add_task(
             func=geoprocessing.routing.detect_lowest_drain_and_sink,
@@ -494,9 +571,8 @@ def _execute(args):
         curve_number_task = task_graph.add_task(
             func=_calculate_curve_number_raster,
             args=(
-                file_registry['lulc_aligned_path'],
                 file_registry['soil_group_aligned_path'],
-                biophysical_table, file_registry['cn_path']),
+                biophysical_factor_dict, file_registry['cn_path']),
             target_path_list=[file_registry['cn_path']],
             dependent_task_list=[align_task],
             task_name='calculate curve number')
@@ -843,16 +919,15 @@ def _calculate_monthly_quick_flow(
 
 
 def _calculate_curve_number_raster(
-        lulc_raster_path, soil_group_path, biophysical_table, cn_path):
+        soil_group_path, biophysical_factor_dict, cn_path):
     """Calculate the CN raster from the landcover and soil group rasters.
 
     Args:
         lulc_raster_path (string): path to landcover raster
         soil_group_path (string): path to raster indicating soil group where
             pixel values are in [1,2,3,4]
-        biophysical_table (dict): maps landcover IDs to dictionaries that
-            contain at least the keys 'cn_a', 'cn_b', 'cn_c', 'cn_d', that
-            map to the curve numbers for that landcover and soil type.
+        biophysical_factor_dict (dict): dictionary that indexes the paths for
+            'cn_a', 'cn_b', 'cn_c', 'cn_d', rasters.
         cn_path (string): path to output curve number raster to be output
             which will be the dimensions of the intersection of
             `lulc_raster_path` and `soil_group_path` the cell size of
@@ -863,86 +938,33 @@ def _calculate_curve_number_raster(
     """
     soil_nodata = geoprocessing.get_raster_info(
         soil_group_path)['nodata'][0]
-    map_soil_type_to_header = {
-        1: 'cn_a',
-        2: 'cn_b',
-        3: 'cn_c',
-        4: 'cn_d',
-    }
+
     # curve numbers are always positive so -1 a good nodata choice
     cn_nodata = -1
-    lulc_to_soil = {}
-    lulc_nodata = geoprocessing.get_raster_info(
-        lulc_raster_path)['nodata'][0]
 
-    lucodes = list(biophysical_table)
-    if lulc_nodata is not None:
-        lucodes.append(lulc_nodata)
-
-    for soil_id, soil_column in map_soil_type_to_header.items():
-        lulc_to_soil[soil_id] = {
-            'lulc_values': [],
-            'cn_values': []
-        }
-
-        for lucode in sorted(lucodes):
-            if lucode != lulc_nodata:
-                lulc_to_soil[soil_id]['cn_values'].append(
-                    biophysical_table[lucode][soil_column])
-                lulc_to_soil[soil_id]['lulc_values'].append(lucode)
-            else:
-                # handle the lulc nodata with cn nodata
-                lulc_to_soil[soil_id]['lulc_values'].append(lulc_nodata)
-                lulc_to_soil[soil_id]['cn_values'].append(cn_nodata)
-
-        # Making the landcover array a float32 in case the user provides a
-        # float landcover map like Kate did.
-        lulc_to_soil[soil_id]['lulc_values'] = (
-            numpy.array(lulc_to_soil[soil_id]['lulc_values'],
-                        dtype=numpy.float32))
-        lulc_to_soil[soil_id]['cn_values'] = (
-            numpy.array(lulc_to_soil[soil_id]['cn_values'],
-                        dtype=numpy.float32))
-
-    # Use set of table lucodes in cn_op
-    lucodes_set = set(lucodes)
-
-    def cn_op(lulc_array, soil_group_array):
+    def cn_op(cn_a, cn_b, cn_c, cn_d, soil_group_array):
         """Map lulc code and soil to a curve number."""
-        cn_result = numpy.empty(lulc_array.shape)
+        cn_result = numpy.empty(soil_group_array.shape)
         cn_result[:] = cn_nodata
-
-        # if lulc_array value not in lulc_to_soil[soil_group_id]['lulc_values']
-        # then numpy.digitize will not bin properly and cause an IndexError
-        # during the reshaping call
-        lulc_unique = set(numpy.unique(lulc_array))
-        if not lulc_unique.issubset(lucodes_set):
-            # cast to list to conform with similar error messages in InVEST
-            missing_lulc_values = sorted(lulc_unique.difference(lucodes_set))
-            error_message = (
-                "Values in the LULC raster were found that are not"
-                " represented under the 'lucode' key column of the"
-                " Biophysical table. The missing values found in the LULC"
-                f" raster but not the table are: {missing_lulc_values}.")
-            raise ValueError(error_message)
-
+        cn_lookup = {
+            1: cn_a,
+            2: cn_b,
+            3: cn_c,
+            4: cn_d
+        }
         for soil_group_id in numpy.unique(soil_group_array):
-            if soil_group_id == soil_nodata:
+            if soil_group_id is None or soil_group_id == soil_nodata:
                 continue
             current_soil_mask = (soil_group_array == soil_group_id)
-            index = numpy.digitize(
-                lulc_array.ravel(),
-                lulc_to_soil[soil_group_id]['lulc_values'], right=True)
-            cn_values = (
-                lulc_to_soil[soil_group_id]['cn_values'][index]).reshape(
-                    lulc_array.shape)
-            cn_result[current_soil_mask] = cn_values[current_soil_mask]
+            cn_result[current_soil_mask] = (
+                cn_lookup[soil_group_id][current_soil_mask])
+            return cn_result
         return cn_result
 
-    cn_nodata = -1
     geoprocessing.raster_calculator(
-        [(lulc_raster_path, 1), (soil_group_path, 1)], cn_op, cn_path,
-        gdal.GDT_Float32, cn_nodata)
+        [(biophysical_factor_dict[index], 1)
+         for index in ['cn_a', 'cn_b', 'cn_c', 'cn_d']] + [
+         (soil_group_path, 1)], cn_op, cn_path, gdal.GDT_Float32, cn_nodata)
 
 
 def _calculate_si_raster(cn_path, stream_path, si_path):
