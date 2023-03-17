@@ -65,7 +65,23 @@ _TMP_BASE_FILES = {
     'precip_path_aligned_list': ['prcp_a%d.tif' % x for x in range(N_MONTHS)],
     'n_events_path_list': ['n_events%d.tif' % x for x in range(N_MONTHS)],
     'et0_path_aligned_list': ['et0_a%d.tif' % x for x in range(N_MONTHS)],
-    'kc_path_list': ['kc_%d.tif' % x for x in range(N_MONTHS)],
+    'kc_1': 'kc_1.tif',
+    'kc_2': 'kc_2.tif',
+    'kc_3': 'kc_3.tif',
+    'kc_4': 'kc_4.tif',
+    'kc_5': 'kc_5.tif',
+    'kc_6': 'kc_6.tif',
+    'kc_7': 'kc_7.tif',
+    'kc_8': 'kc_8.tif',
+    'kc_9': 'kc_9.tif',
+    'kc_10': 'kc_10.tif',
+    'kc_11': 'kc_11.tif',
+    'kc_12': 'kc_12.tif',
+    'root_depth': 'root_depth.tif',
+    'CN_A': 'CN_A.tif',
+    'CN_B': 'CN_B.tif',
+    'CN_C': 'CN_C.tif',
+    'CN_D': 'CN_D.tif',
     'l_aligned_path': 'l_aligned.tif',
     'cz_aligned_raster_path': 'cz_aligned.tif',
     'l_sum_pre_clamp': 'l_sum_pre_clamp.tif'
@@ -598,7 +614,6 @@ def _execute(args):
                 func=_calculate_monthly_quick_flow,
                 args=(
                     file_registry['precip_path_aligned_list'][month_index],
-                    file_registry['lulc_aligned_path'],
                     file_registry['cn_path'],
                     file_registry['n_events_path_list'][month_index],
                     file_registry['stream_path'],
@@ -625,24 +640,14 @@ def _execute(args):
         reclass_error_details = {
             'raster_name': 'LULC', 'column_name': 'lucode',
             'table_name': 'Biophysical'}
-        for month_index in range(N_MONTHS):
-            kc_lookup = dict([
-                (lucode, biophysical_table[lucode]['kc_%d' % (month_index+1)])
-                for lucode in biophysical_table])
-            kc_nodata = -1  # a reasonable nodata value
-            kc_task = task_graph.add_task(
-                func=geoprocessing.reclassify_raster,
-                args=(
-                    (file_registry['lulc_aligned_path'], 1), kc_lookup,
-                    file_registry['kc_path_list'][month_index],
-                    gdal.GDT_Float32, kc_nodata, reclass_error_details),
-                target_path_list=[file_registry['kc_path_list'][month_index]],
-                dependent_task_list=[align_task],
-                task_name='classify kc month %d' % month_index)
-            kc_task_list.append(kc_task)
+
+        # biophysical_factor_dict[kc_n] contains the kc rasters
 
         # call through to a cython function that does the necessary routing
         # between AET and L.sum.avail in equation [7], [4], and [3]
+        kc_path_list = [
+            biophysical_factor_dict[f'Kc_{index}']
+            for index in range(1, 13)]
         calculate_local_recharge_task = task_graph.add_task(
             func=seasonal_water_yield_core.calculate_local_recharge,
             args=(
@@ -650,7 +655,7 @@ def _execute(args):
                 file_registry['et0_path_aligned_list'],
                 file_registry['qfm_path_list'],
                 file_registry['flow_dir_mfd_path'],
-                file_registry['kc_path_list'],
+                kc_path_list,
                 alpha_month_map,
                 beta_i, gamma, file_registry['stream_path'],
                 file_registry['l_path'],
@@ -808,14 +813,13 @@ def _calculate_annual_qfi(qfm_path_list, target_qf_path):
 
 
 def _calculate_monthly_quick_flow(
-        precip_path, lulc_raster_path, cn_path, n_events_raster_path,
+        precip_path, cn_path, n_events_raster_path,
         stream_path, si_path, qf_monthly_path):
     """Calculate quick flow for a month.
 
     Args:
         precip_path (string): path to file that correspond to monthly
             precipitation
-        lulc_raster_path (string): path to landcover raster
         cn_path (string): path to curve number raster
         n_events_raster_path (string): a path to a raster where each pixel
             indicates the number of rain events.
@@ -923,15 +927,11 @@ def _calculate_curve_number_raster(
     """Calculate the CN raster from the landcover and soil group rasters.
 
     Args:
-        lulc_raster_path (string): path to landcover raster
         soil_group_path (string): path to raster indicating soil group where
             pixel values are in [1,2,3,4]
         biophysical_factor_dict (dict): dictionary that indexes the paths for
             'cn_a', 'cn_b', 'cn_c', 'cn_d', rasters.
-        cn_path (string): path to output curve number raster to be output
-            which will be the dimensions of the intersection of
-            `lulc_raster_path` and `soil_group_path` the cell size of
-            `lulc_raster_path`.
+        cn_path (string): path to output curve number raster to be output.
 
     Returns:
         None
@@ -943,7 +943,7 @@ def _calculate_curve_number_raster(
     cn_nodata = -1
 
     def cn_op(cn_a, cn_b, cn_c, cn_d, soil_group_array):
-        """Map lulc code and soil to a curve number."""
+        """Map soil type to a curve number."""
         cn_result = numpy.empty(soil_group_array.shape)
         cn_result[:] = cn_nodata
         cn_lookup = {
