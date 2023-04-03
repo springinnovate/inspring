@@ -117,7 +117,7 @@ def _reclassify_or_clip(
         path to raster to use for biophysical component.
     """
     key_path = f'{key_field}_path'
-    if key_path in args:
+    if key_path in args and args[key_path] is not None:
         geoprocessing.warp_raster(
             args[key_path], target_raster_info['pixel_size'], f_reg[key_path],
             'bilinear', target_bb=target_raster_info['bounding_box'],
