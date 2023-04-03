@@ -139,9 +139,10 @@ def _reclassify_or_clip(
          (lulc_code, table) in biophysical_table.items()])
 
     geoprocessing.reclassify_raster(
-        (lulc_raster_path, 1), lulc_to_val, f_reg[key_field], gdal.GDT_Float32,
+        (lulc_raster_path, 1), lulc_to_val,
+        f_reg[_BIOPHYSICAL_TABLE_FIELDS_PATH_MAP[key_field]], gdal.GDT_Float32,
         _TARGET_NODATA)
-    return f_reg[key_field]
+    return f_reg[_BIOPHYSICAL_TABLE_FIELDS_PATH_MAP[key_field]]
 
 
 def execute(args):
