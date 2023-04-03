@@ -133,6 +133,7 @@ def _reclassify_or_clip(
     lufield_id = args.get('biophysical_table_lucode_field', 'lucode')
     biophysical_table = utils.build_lookup_from_csv(
         args['biophysical_table_path'], lufield_id)
+    LOGGER.warn(f'****************************** {biophysical_table}')
 
     lulc_to_val = dict(
         [(lulc_code, float(table[key_field])) for
