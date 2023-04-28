@@ -124,7 +124,7 @@ def _reclassify_or_clip(
     """
     key_field = key_field.lower()
     key_path = f'{key_field}_path'
-    if key_path in args:
+    if key_path in args and args[key_path] not in ['', None]:
         geoprocessing.warp_raster(
             args[key_path], target_raster_info['pixel_size'], f_reg[key_field],
             'bilinear', target_bb=target_raster_info['bounding_box'],
