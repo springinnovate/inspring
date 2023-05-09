@@ -894,9 +894,22 @@ def _calculate_monthly_quick_flow(
             numpy.log(E1[nonzero_e1_mask]))
 
         # qf_im is the quickflow at pixel i on month m Eq. [1]
-        qf_im[valid_mask] = (25.4 * valid_n_events * (
-            (a_im - valid_si) * numpy.exp(-0.2 * valid_si / a_im) +
-            valid_si ** 2 / a_im * exp_result))
+        try:
+            qf_im[valid_mask] = (25.4 * valid_n_events * (
+                (a_im - valid_si) * numpy.exp(-0.2 * valid_si / a_im) +
+                valid_si ** 2 / a_im * exp_result))
+        except RuntimeWarning:
+            LOGGER.exception(
+                f'************error on quickflow:\n'
+                f'(25.4 * {valid_n_events} * ('
+                f'({a_im} - {valid_si}) * numpy.exp(-0.2 * {valid_si} / {a_im}) +'
+                f'{valid_si} ** 2 / {a_im} * {exp_result}))')
+            for array, array_id in [(valid_n_events, 'valid_n_events'), (a_im, 'a_im'), (valid_si, 'valid_si'), (exp_result, 'exp_result')]:
+                invalid_values = ~numpy.isfinite(array)
+                if any(invalid_values):
+                    LOGGER.error(
+                        f'{array_id}: {array[~numpy.isfinite(array[invalid_values])]}')
+                raise
 
         # if precip is 0, then QF should be zero
         qf_im[(p_im == 0) | (n_events == 0)] = 0.0
