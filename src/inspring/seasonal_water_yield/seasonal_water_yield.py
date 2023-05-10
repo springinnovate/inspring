@@ -904,6 +904,7 @@ def _calculate_monthly_quick_flow(
                 f'(25.4 * {valid_n_events} * ('
                 f'({a_im} - {valid_si}) * numpy.exp(-0.2 * {valid_si} / {a_im}) +'
                 f'{valid_si} ** 2 / {a_im} * {exp_result}))')
+            LOGGER.debug(f'{valid_si[valid_si < 0]} {a_im[a_im <= 0]}')
             div_result = valid_si / a_im
             invalid_result = ~numpy.isfinite(div_result)
             LOGGER.exception(f'{div_result} {div_result[invalid_result]} ({valid_si[invalid_result]}) / ({a_im[invalid_result]}')
