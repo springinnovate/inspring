@@ -78,14 +78,19 @@ _TMP_BASE_FILES = {
     'kc_11': 'kc_11.tif',
     'kc_12': 'kc_12.tif',
     'root_depth': 'root_depth.tif',
-    'CN_A': 'CN_A.tif',
-    'CN_B': 'CN_B.tif',
-    'CN_C': 'CN_C.tif',
-    'CN_D': 'CN_D.tif',
+    'cn_a': 'CN_A.tif',
+    'cn_b': 'CN_B.tif',
+    'cn_c': 'CN_C.tif',
+    'cn_d': 'CN_D.tif',
     'l_aligned_path': 'l_aligned.tif',
     'cz_aligned_raster_path': 'cz_aligned.tif',
     'l_sum_pre_clamp': 'l_sum_pre_clamp.tif'
 }
+
+_TABLE_BASED_BIOPHYSICAL_FACTORS = [
+    'root_depth', 'cn_a', 'cn_b', 'cn_c', 'cn_d', 'kc_1', 'kc_2',
+    'kc_3', 'kc_4', 'kc_5', 'kc_6', 'kc_7', 'kc_8', 'kc_9', 'kc_10',
+    'kc_11', 'kc_12']
 
 
 def _reclassify_or_clip(
@@ -117,31 +122,31 @@ def _reclassify_or_clip(
     Returns:
         path to raster to use for biophysical component.
     """
+    key_field = key_field.lower()
     key_path = f'{key_field}_path'
-    if key_path in args:
+    if key_path in args and args[key_path] not in ['', None]:
         geoprocessing.warp_raster(
-            args[key_path], target_raster_info['pixel_size'], f_reg[key_path],
+            args[key_path], target_raster_info['pixel_size'], f_reg[key_field],
             'bilinear', target_bb=target_raster_info['bounding_box'],
             target_projection_wkt=target_raster_info['projection_wkt'],
-            working_dir=os.path.dirname(f_reg[key_path]))
-        return f_reg[key_path]
+            working_dir=os.path.dirname(f_reg[key_field]))
+        return f_reg[key_field]
 
     if args['biophysical_table_path'] is None:
         raise ValueError(
             f'Neither {key_field} or "biophysical_table_path" were defined in '
             f'args, one must be defined. value of args: {args}')
 
-    lufield_id = args.get('biophysical_table_lucode_field', 'lucode')
+    lufield_id = args.get('lucode_field', 'lucode')
     biophysical_table = utils.build_lookup_from_csv(
         args['biophysical_table_path'], lufield_id)
-
     lulc_to_val = dict(
         [(lulc_code, float(table[key_field])) for
          (lulc_code, table) in biophysical_table.items()])
 
     geoprocessing.reclassify_raster(
-        (lulc_raster_path, 1), lulc_to_val, f_reg[key_field], gdal.GDT_Float32,
-        TARGET_NODATA)
+        (lulc_raster_path, 1), lulc_to_val, f_reg[key_field],
+        gdal.GDT_Float32, TARGET_NODATA)
     return f_reg[key_field]
 
 
@@ -387,10 +392,7 @@ def _execute(args):
         empty_task = task_graph.add_task()
         for month_id in range(12, 0, -1):
             for index, path in enumerate(potential_rain_events_path_list):
-                # LOGGER.warning(
-                #     f'testing {index}:{path} for month {month_id}')
                 if os.path.basename(path).find(f'_{month_id:02d}_') >= 0:
-                    # LOGGER.warning(f'found a match!!!')
                     input_align_list.append(path)
                     output_align_list.append(
                         file_registry['n_events_path_list'][month_id-1])
@@ -442,10 +444,7 @@ def _execute(args):
     raster_info = geoprocessing.get_raster_info(
         file_registry['dem_aligned_path'])
     biophysical_factor_dict = {}
-    for biophysical_key in [
-            'root_depth', 'CN_A', 'CN_B', 'CN_C', 'CN_D', 'Kc_1', 'Kc_2',
-            'Kc_3', 'Kc_4', 'Kc_5', 'Kc_6', 'Kc_7', 'Kc_8', 'Kc_9', 'Kc_10',
-            'Kc_11', 'Kc_12']:
+    for biophysical_key in _TABLE_BASED_BIOPHYSICAL_FACTORS:
         reclassify_clip_task = task_graph.add_task(
             func=_reclassify_or_clip,
             args=(
@@ -646,7 +645,7 @@ def _execute(args):
         # call through to a cython function that does the necessary routing
         # between AET and L.sum.avail in equation [7], [4], and [3]
         kc_path_list = [
-            biophysical_factor_dict[f'Kc_{index}']
+            biophysical_factor_dict[f'kc_{index}']
             for index in range(1, 13)]
         calculate_local_recharge_task = task_graph.add_task(
             func=seasonal_water_yield_core.calculate_local_recharge,
@@ -895,9 +894,26 @@ def _calculate_monthly_quick_flow(
             numpy.log(E1[nonzero_e1_mask]))
 
         # qf_im is the quickflow at pixel i on month m Eq. [1]
-        qf_im[valid_mask] = (25.4 * valid_n_events * (
-            (a_im - valid_si) * numpy.exp(-0.2 * valid_si / a_im) +
-            valid_si ** 2 / a_im * exp_result))
+        try:
+            qf_im[valid_mask] = (25.4 * valid_n_events * (
+                (a_im - valid_si) * numpy.exp(-0.2 * valid_si / a_im) +
+                valid_si ** 2 / a_im * exp_result))
+        except RuntimeWarning:
+            LOGGER.exception(
+                f'************error on quickflow:\n'
+                f'(25.4 * {valid_n_events} * ('
+                f'({a_im} - {valid_si}) * numpy.exp(-0.2 * {valid_si} / {a_im}) +'
+                f'{valid_si} ** 2 / {a_im} * {exp_result}))')
+            LOGGER.exception(f'{valid_si[valid_si < 0]} {a_im[a_im <= 0]}')
+            div_result = valid_si / a_im
+            invalid_result = ~numpy.isfinite(div_result)
+            LOGGER.exception(f'{div_result} {div_result[invalid_result]} ({valid_si[invalid_result]}) / ({a_im[invalid_result]}')
+            for array, array_id in [(valid_n_events, 'valid_n_events'), (a_im, 'a_im'), (valid_si, 'valid_si'), (exp_result, 'exp_result')]:
+                invalid_values = ~numpy.isfinite(array)
+                if any(invalid_values):
+                    LOGGER.error(
+                        f'{array_id}: {array[~numpy.isfinite(array[invalid_values])]}')
+                raise
 
         # if precip is 0, then QF should be zero
         qf_im[(p_im == 0) | (n_events == 0)] = 0.0
@@ -958,7 +974,6 @@ def _calculate_curve_number_raster(
             current_soil_mask = (soil_group_array == soil_group_id)
             cn_result[current_soil_mask] = (
                 cn_lookup[soil_group_id][current_soil_mask])
-            return cn_result
         return cn_result
 
     geoprocessing.raster_calculator(
@@ -993,6 +1008,7 @@ def _calculate_si_raster(cn_path, stream_path, si_path):
         si_array[valid_mask] = (
             (1000.0 / ci_factor[valid_mask] - 10) * (
                 stream_mask[valid_mask] != 1))
+        si_array[si_array < 0] = -1  # guard against a negative something
         return si_array
 
     geoprocessing.raster_calculator(

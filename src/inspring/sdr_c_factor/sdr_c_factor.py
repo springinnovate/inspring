@@ -117,7 +117,7 @@ def _reclassify_or_clip(
         path to raster to use for biophysical component.
     """
     key_path = f'{key_field}_path'
-    if key_path in args:
+    if key_path in args and args[key_path] is not None:
         geoprocessing.warp_raster(
             args[key_path], target_raster_info['pixel_size'], f_reg[key_path],
             'bilinear', target_bb=target_raster_info['bounding_box'],
@@ -133,15 +133,17 @@ def _reclassify_or_clip(
     lufield_id = args.get('biophysical_table_lucode_field', 'lucode')
     biophysical_table = utils.build_lookup_from_csv(
         args['biophysical_table_path'], lufield_id)
+    LOGGER.warn(f'****************************** {biophysical_table}')
 
     lulc_to_val = dict(
         [(lulc_code, float(table[key_field])) for
          (lulc_code, table) in biophysical_table.items()])
 
     geoprocessing.reclassify_raster(
-        (lulc_raster_path, 1), lulc_to_val, f_reg[key_field], gdal.GDT_Float32,
+        (lulc_raster_path, 1), lulc_to_val,
+        f_reg[_BIOPHYSICAL_TABLE_FIELDS_PATH_MAP[key_field]], gdal.GDT_Float32,
         _TARGET_NODATA)
-    return f_reg[key_field]
+    return f_reg[_BIOPHYSICAL_TABLE_FIELDS_PATH_MAP[key_field]]
 
 
 def execute(args):

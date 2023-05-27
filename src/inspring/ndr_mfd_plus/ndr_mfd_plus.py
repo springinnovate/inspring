@@ -100,7 +100,6 @@ def execute(args):
         None
 
     """
-    LOGGER.info('********************* NDFMFDPLUS')
     output_dir = os.path.join(args['workspace_dir'])
     intermediate_output_dir = os.path.join(
         args['workspace_dir'], 'intermediate_outputs')
@@ -582,7 +581,7 @@ def _calculate_load(
                         load_multiplier = float(
                             lucode_to_parameters[lucode][
                                 'load_multiplier'])
-                    except ValueError:
+                    except KeyError:
                         load_multiplier = 1.0
                     result[lucode_mask] = (
                         load_val * cell_area_ha * load_multiplier)
