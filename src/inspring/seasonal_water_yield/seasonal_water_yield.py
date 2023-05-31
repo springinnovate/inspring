@@ -392,7 +392,7 @@ def _execute(args):
         empty_task = task_graph.add_task()
         for month_id in range(12, 0, -1):
             for index, path in enumerate(potential_rain_events_path_list):
-                if os.path.basename(path).find(f'_{month_id:02d}_') >= 0:
+                if os.path.basename(path).find(f'_{month_id:02d}.tif') >= 0:
                     input_align_list.append(path)
                     output_align_list.append(
                         file_registry['n_events_path_list'][month_id-1])
@@ -431,7 +431,7 @@ def _execute(args):
             for month_id in range(12, 0, -1):
                 LOGGER.info(f'parsing out potential rain events path: {potential_rain_events_path_list}')
                 for index, path in enumerate(potential_rain_events_path_list):
-                    if os.path.basename(path).find(f'_{month_id:02d}_') >= 0:
+                    if os.path.basename(path).find(f'_{month_id:02d}.tif') >= 0:
                         LOGGER.warning(f'matched {path} to month {month_id}')
                         file_registry['n_events_path_list'][month_id-1] = path
                         reclassify_n_events_task_list.append(empty_task)
