@@ -798,12 +798,12 @@ def _calculate_annual_qfi(qfm_path_list, target_qf_path):
     def qfi_sum_op(*qf_values):
         """Sum the monthly qfis."""
         qf_sum = numpy.zeros(qf_values[0].shape)
-        valid_mask = ~numpy.isclose(qf_values[0], qf_nodata)
-        valid_qf_sum = qf_sum[valid_mask]
-        for index in range(len(qf_values)):
-            valid_qf_sum += qf_values[index][valid_mask]
-        qf_sum[:] = qf_nodata
-        qf_sum[valid_mask] = valid_qf_sum
+        running_valid_mask = numpy.zeros(qf_sum.shape, dtype=bool)
+        for local_qf_array in qf_values:
+            local_valid_mask = ~numpy.isclose(local_qf_array, qf_nodata)
+            qf_sum[local_valid_mask] += local_qf_array[local_valid_mask]
+            running_valid_mask |= local_valid_mask
+        qf_sum[~running_valid_mask] = qf_nodata
         return qf_sum
 
     geoprocessing.raster_calculator(
