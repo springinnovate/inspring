@@ -424,25 +424,24 @@ def _execute(args):
         file_registry['precip_path_aligned_list'] = precip_path_list
         file_registry['et0_path_aligned_list'] = et0_path_list
         if args['user_defined_rain_events_path']:
-            potential_rain_events_path_list = list(
-                glob.glob(args['user_defined_rain_events_path']))
-            if len(potential_rain_events_path_list) != 12:
-                raise ValueError(
-                    f'user supplied user defined rain events path as '
-                    f'{args["user_defined_rain_events_path"]}, expected 12, but '
-                    f'matched {len(potential_rain_events_path_list)} files')
             empty_task = task_graph.add_task()
             for month_id in range(12, 0, -1):
-                LOGGER.info(f'parsing out potential rain events path: {potential_rain_events_path_list}')
-                for index, path in enumerate(potential_rain_events_path_list):
-                    if os.path.basename(path).find(f'_{month_id:02d}.tif') >= 0:
-                        LOGGER.warning(f'matched {path} to month {month_id}')
-                        file_registry['n_events_path_list'][month_id-1] = path
-                        reclassify_n_events_task_list.append(empty_task)
-                        potential_rain_events_path_list.pop(index)
-                        break
-                LOGGER.warning(f'final n_events_path_list for {args["workspace_dir"]}: {file_registry["n_events_path_list"]}')
-
+                # Generate patterns for month with and without leading zero
+                matches = glob.glob(
+                    args['user_defined_rain_events_path'].format(
+                        month=month_id))
+                matches += glob.glob(
+                    args['user_defined_rain_events_path'].format(
+                        month=f"{month_id:02d}"))
+                if matches:
+                    file_registry['n_events_path_list'][month_id-1] = \
+                        matches[0]
+                    reclassify_n_events_task_list.append(empty_task)
+                else:
+                    raise ValueError(
+                        f"could not find a match in "
+                        f"{args['user_defined_rain_events_path']} for month "
+                        f"{month_id}")
         align_task = task_graph.add_task()
 
     raster_info = geoprocessing.get_raster_info(
