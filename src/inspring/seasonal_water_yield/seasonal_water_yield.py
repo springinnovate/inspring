@@ -214,7 +214,8 @@ def execute(args):
             args['user_defined_climate_zones'] is True, pixel values correspond
             to the "cz_id" values defined in args['climate_zone_table_path']
         args['user_defined_rain_events_path'] (string): path to match a
-            pattern to user defined rain event rasters.
+            pattern to user defined rain event rasters must have the format
+            string {month} embedded somewhere in it.
         args['monthly_alpha'] (boolean): if True, use the alpha
         args['monthly_alpha_path'] (string): required if args['monthly_alpha']
             is True. A CSV file.
@@ -381,25 +382,28 @@ def _execute(args):
     interpolate_list = ['near'] * len(input_align_list)
 
     reclassify_n_events_task_list = []
+
     if args['user_defined_rain_events_path']:
-        potential_rain_events_path_list = list(
-            glob.glob(args['user_defined_rain_events_path']))
-        if len(potential_rain_events_path_list) != 12:
-            raise ValueError(
-                f'user supplied user defined rain events path as '
-                f'{args["user_defined_rain_events_path"]}, expected 12, but '
-                f'matched {len(potential_rain_events_path_list)} files')
         empty_task = task_graph.add_task()
         for month_id in range(12, 0, -1):
-            for index, path in enumerate(potential_rain_events_path_list):
-                if os.path.basename(path).find(f'_{month_id:02d}.tif') >= 0:
-                    input_align_list.append(path)
-                    output_align_list.append(
-                        file_registry['n_events_path_list'][month_id-1])
-                    interpolate_list.append('near')
-                    potential_rain_events_path_list.pop(index)
-                    reclassify_n_events_task_list.append(empty_task)
-                    break
+            # Generate patterns for year with and without leading zero
+            matches = glob.glob(
+                args['user_defined_rain_events_path'].format(
+                    month=month_id))
+            matches += glob.glob(
+                args['user_defined_rain_events_path'].format(
+                    month=f"{month_id:02d}"))
+            if matches:
+                input_align_list.append(matches[0])
+                output_align_list.append(
+                    file_registry['n_events_path_list'][month_id-1])
+                interpolate_list.append('near')
+                reclassify_n_events_task_list.append(empty_task)
+            else:
+                raise ValueError(
+                    f"could not find a match in "
+                    f"{args['user_defined_rain_events_path']} for month "
+                    f"{month_id}")
 
     if 'prealigned' not in args or not args['prealigned']:
         vector_mask_options = {'mask_vector_path': args['watersheds_path']}
