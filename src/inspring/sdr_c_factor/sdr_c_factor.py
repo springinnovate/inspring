@@ -368,7 +368,7 @@ def execute(args):
         func=_calculate_ls_factor,
         args=(
             f_reg['flow_accumulation_path'], f_reg['slope_path'],
-            f_reg['flow_direction_path'], l_cap, f_reg['ls_path']),
+            l_cap, f_reg['ls_path']),
         target_path_list=[f_reg['ls_path']],
         dependent_task_list=[flow_accumulation_task, slope_task],
         task_name='ls factor calculation')
@@ -635,8 +635,7 @@ def execute(args):
 
 
 def _calculate_ls_factor(
-        flow_accumulation_path, slope_path, aspect_path, l_cap,
-        out_ls_factor_path):
+        flow_accumulation_path, slope_path, l_cap, out_ls_factor_path):
     """Calculate LS factor.
 
     LS factor as Equation 3 from "Extension and validation
@@ -648,7 +647,6 @@ def _calculate_ls_factor(
         flow_accumulation_path (string): path to raster, pixel values are the
             contributing upstream area at that cell. Pixel size is square.
         slope_path (string): path to slope raster as a percent
-        aspect_path (string): path to raster flow direction raster in radians
         l_cap (float): set the upstream area to be no greater than the
             square of this number. This is the "McCool l factor cap".
         out_ls_factor_path (string): path to output ls_factor raster
@@ -658,7 +656,6 @@ def _calculate_ls_factor(
 
     """
     slope_nodata = geoprocessing.get_raster_info(slope_path)['nodata'][0]
-    aspect_nodata = geoprocessing.get_raster_info(aspect_path)['nodata'][0]
 
     flow_accumulation_info = geoprocessing.get_raster_info(
         flow_accumulation_path)
@@ -667,11 +664,10 @@ def _calculate_ls_factor(
     cell_area = cell_size ** 2
 
     def ls_factor_function(
-            aspect_angle, percent_slope, flow_accumulation, l_cap):
+            percent_slope, flow_accumulation, l_cap):
         """Calculate the LS factor.
 
         Parameters:
-            aspect_angle (numpy.ndarray): flow direction in radians
             percent_slope (numpy.ndarray): slope in percent
             flow_accumulation (numpy.ndarray): upstream pixels
             l_cap (float): set the upstream area to be no greater than the
@@ -682,17 +678,17 @@ def _calculate_ls_factor(
 
         """
         valid_mask = (
-            (aspect_angle != aspect_nodata) &
             (percent_slope != slope_nodata) &
             (flow_accumulation != flow_accumulation_nodata))
         result = numpy.empty(valid_mask.shape, dtype=numpy.float32)
         result[:] = _TARGET_NODATA
 
-        # Determine the length of the flow path on the pixel
-        xij = (numpy.abs(numpy.sin(aspect_angle[valid_mask])) +
-               numpy.abs(numpy.cos(aspect_angle[valid_mask])))
+        # take the numerical average of the aspect angles since the single
+        # pixel aspect shouldn't affect the flow accumulation so much
+        xij = 4/numpy.pi
 
-        contributing_area = (flow_accumulation[valid_mask]-1) * cell_area
+        contributing_flow_length_area = numpy.sqrt(
+            (flow_accumulation[valid_mask]-1) * cell_area)
         slope_in_radians = numpy.arctan(percent_slope[valid_mask] / 100.0)
 
         # From Equation 4 in "Extension and validation of a geographic
@@ -722,8 +718,8 @@ def _calculate_ls_factor(
         m_exp[~big_slope_mask] = m_table[m_indexes]
 
         l_factor = (
-            ((contributing_area + cell_area)**(m_exp+1) -
-             contributing_area ** (m_exp+1)) /
+            ((contributing_flow_length_area + cell_area)**(m_exp+1) -
+             contributing_flow_length_area ** (m_exp+1)) /
             ((cell_size ** (m_exp + 2)) * (xij**m_exp) * (22.13**m_exp)))
 
         # ensure l_factor is no larger than l_cap
@@ -733,7 +729,7 @@ def _calculate_ls_factor(
 
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
-            aspect_path, slope_path, flow_accumulation_path]] +
+            slope_path, flow_accumulation_path]] +
         [(l_cap, 'raw')], ls_factor_function, out_ls_factor_path,
         gdal.GDT_Float32, _TARGET_NODATA)
 
