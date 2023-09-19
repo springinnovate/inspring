@@ -368,6 +368,7 @@ def execute(args):
         func=_calculate_ls_factor,
         args=(
             f_reg['flow_accumulation_path'], f_reg['slope_path'],
+            f_reg['flow_direction_path'],
             l_cap, f_reg['ls_path']),
         target_path_list=[f_reg['ls_path']],
         dependent_task_list=[flow_accumulation_task, slope_task],
@@ -635,7 +636,7 @@ def execute(args):
 
 
 def _calculate_ls_factor(
-        flow_accumulation_path, slope_path, l_cap, out_ls_factor_path):
+        flow_accumulation_path, slope_path, aspect_path, l_cap, out_ls_factor_path):
     """Calculate LS factor.
 
     LS factor as Equation 3 from "Extension and validation
@@ -647,6 +648,9 @@ def _calculate_ls_factor(
         flow_accumulation_path (string): path to raster, pixel values are the
             contributing upstream area at that cell. Pixel size is square.
         slope_path (string): path to slope raster as a percent
+        aspect_path (string): path to a 32 bit in raster representing 8 MFD
+            intensities as a 4 bit int. where the first direction is mask
+            0xF the second 0xF << 4 etc.
         l_cap (float): set the upstream area to be no greater than the
             square of this number. This is the "McCool l factor cap".
         out_ls_factor_path (string): path to output ls_factor raster
@@ -664,11 +668,13 @@ def _calculate_ls_factor(
     cell_area = cell_size ** 2
 
     def ls_factor_function(
-            percent_slope, flow_accumulation, l_cap):
+            percent_slope, flow_direction_mfd, flow_accumulation, l_cap):
         """Calculate the LS factor.
 
         Parameters:
             percent_slope (numpy.ndarray): slope in percent
+            flow_direction_mfd (numpy.ndarray): 32 bit ints representing
+                MFD direction
             flow_accumulation (numpy.ndarray): upstream pixels
             l_cap (float): set the upstream area to be no greater than the
                 square of this number. This is the "McCool l factor cap".
@@ -683,9 +689,16 @@ def _calculate_ls_factor(
         result = numpy.empty(valid_mask.shape, dtype=numpy.float32)
         result[:] = _TARGET_NODATA
 
-        # take the numerical average of the aspect angles since the single
-        # pixel aspect shouldn't affect the flow accumulation so much
-        xij = 4/numpy.pi
+        # take the weighted mean of the aspect angles using the MFD angles
+        mfd_weights = numpy.array(
+            [1, numpy.sqrt(2), 1, numpy.sqrt(2),
+             1, numpy.sqrt(2), 1, numpy.sqrt(2)])
+        mfd_masks = 0xF << (numpy.arange(0, 32, 4))
+        shifted = (flow_direction_mfd[..., None] & mfd_masks) >> numpy.arange(
+            0, 32, 4)
+        total_value = numpy.sum(shifted * mfd_weights, axis=1)
+        total_weight = numpy.sum(mfd_weights)
+        xij = total_value / total_weight
 
         contributing_flow_length_area = numpy.sqrt(
             (flow_accumulation[valid_mask]-1) * cell_area)
