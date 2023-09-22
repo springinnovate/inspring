@@ -636,7 +636,8 @@ def execute(args):
 
 
 def _calculate_ls_factor(
-        flow_accumulation_path, slope_path, aspect_path, l_cap, out_ls_factor_path):
+        flow_accumulation_path, slope_path, flow_direction_path, l_cap,
+        out_ls_factor_path):
     """Calculate LS factor.
 
     LS factor as Equation 3 from "Extension and validation
@@ -648,7 +649,7 @@ def _calculate_ls_factor(
         flow_accumulation_path (string): path to raster, pixel values are the
             contributing upstream area at that cell. Pixel size is square.
         slope_path (string): path to slope raster as a percent
-        aspect_path (string): path to a 32 bit in raster representing 8 MFD
+        flow_direction_path (string): path to a 32 bit in raster representing 8 MFD
             intensities as a 4 bit int. where the first direction is mask
             0xF the second 0xF << 4 etc.
         l_cap (float): set the upstream area to be no greater than the
@@ -742,7 +743,7 @@ def _calculate_ls_factor(
 
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
-            slope_path, flow_accumulation_path]] +
+            slope_path, flow_direction_path, flow_accumulation_path]] +
         [(l_cap, 'raw')], ls_factor_function, out_ls_factor_path,
         gdal.GDT_Float32, _TARGET_NODATA)
 
