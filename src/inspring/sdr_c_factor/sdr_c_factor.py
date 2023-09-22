@@ -694,7 +694,7 @@ def _calculate_ls_factor(
         mfd_weights = numpy.array(
             [1, numpy.sqrt(2), 1, numpy.sqrt(2),
              1, numpy.sqrt(2), 1, numpy.sqrt(2)])
-        mfd_masks = 0xF << (numpy.arange(0, 32, 4))
+        mfd_masks = 0xF << (numpy.arange(0, 32, 4)).astype(numpy.uint32)
         shifted = (flow_direction_mfd[valid_mask][..., None] & mfd_masks) >> numpy.arange(
             0, 32, 4)
         total_value = numpy.sum(shifted * mfd_weights, axis=-1)
