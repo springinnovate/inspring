@@ -277,7 +277,10 @@ def execute(args):
     # determine bounding box, and then create c/p factor rasters
 
     if 'prealigned' not in args or not args['prealigned']:
-        vector_mask_options = {'mask_vector_path': args['watersheds_path']}
+        vector_mask_options = {
+            'mask_vector_path': args['watersheds_path'],
+            'all_touched': True,
+            }
         align_task = task_graph.add_task(
             func=geoprocessing.align_and_resize_raster_stack,
             args=(
