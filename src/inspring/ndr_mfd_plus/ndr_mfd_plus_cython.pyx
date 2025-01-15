@@ -2,6 +2,7 @@
 # cython: language_level=2
 import tempfile
 import logging
+import shutil
 import os
 import collections
 
@@ -413,10 +414,10 @@ def ndr_eff_calculation(
 
     # create direction raster in bytes
     def _mfd_to_flow_dir_op(mfd_array):
-        result = numpy.zeros(mfd_array.shape, dtype=numpy.int8)
+        result = numpy.zeros(mfd_array.shape, dtype=numpy.uint8)
         for i in range(8):
-            result[:] |= (((mfd_array >> (i*4)) & 0xF) > 0) << i
-        return result
+            result[:] |= (((mfd_array >> (i*4)) & 0xF) > 0).astype(numpy.uint8) << i
+        return result.astype(numpy.uint8)
 
     geoprocessing.raster_calculator(
         [(mfd_flow_direction_path, 1)], _mfd_to_flow_dir_op,

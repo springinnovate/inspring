@@ -82,6 +82,8 @@ def execute(args):
             all output files
         args['threshold_flow_accumulation']: a number representing the flow
             accumulation in terms of upstream pixels.
+        args['max_pixel_fill_count'] (int): number of pixels to attempt to fill
+            before cutting off the fill algorithm
         args['k_param'] (number): The Borselli k parameter. This is a
             calibration parameter that determines the shape of the
             relationship between hydrologic connectivity.
@@ -215,7 +217,8 @@ def execute(args):
             (f_reg['aligned_dem_path'], 1), f_reg['filled_dem_path']),
         kwargs={
             'working_dir': cache_dir,
-            'single_outlet_tuple': single_outlet_tuple},
+            'single_outlet_tuple': single_outlet_tuple,
+            'max_pixel_fill_count': int(args['max_pixel_fill_count'])},
         dependent_task_list=[align_raster_task],
         target_path_list=[f_reg['filled_dem_path']],
         task_name='fill pits')
