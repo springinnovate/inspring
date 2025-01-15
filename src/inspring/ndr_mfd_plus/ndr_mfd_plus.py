@@ -133,6 +133,8 @@ def execute(args):
 
     if 'crit_len_n' in args:
         default_keys = {'crit_len_n': float(args['crit_len_n'])}
+    else:
+        default_keys = {}
     lucode_to_parameters = utils.build_lookup_from_csv(
         args['biophysical_table_path'], args['biophyisical_lucode_fieldname'],
         default_keys=default_keys)
