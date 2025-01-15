@@ -211,24 +211,30 @@ def execute(args):
     else:
         single_outlet_tuple = None
 
-    fill_pits_task = task_graph.add_task(
-        func=routing.fill_pits,
-        args=(
-            (f_reg['aligned_dem_path'], 1), f_reg['filled_dem_path']),
-        kwargs={
-            'working_dir': cache_dir,
-            'single_outlet_tuple': single_outlet_tuple,
-            'max_pixel_fill_count': int(args['max_pixel_fill_count'])},
-        dependent_task_list=[align_raster_task],
-        target_path_list=[f_reg['filled_dem_path']],
-        task_name='fill pits')
+    max_pixel_fill_count = int(args['max_pixel_fill_count'])
+    if max_pixel_fill_count != 0:
+        fill_pits_task = task_graph.add_task(
+            func=routing.fill_pits,
+            args=(
+                (f_reg['aligned_dem_path'], 1), f_reg['filled_dem_path']),
+            kwargs={
+                'working_dir': cache_dir,
+                'single_outlet_tuple': single_outlet_tuple,
+                'max_pixel_fill_count': max_pixel_fill_count},
+            dependent_task_list=[align_raster_task],
+            target_path_list=[f_reg['filled_dem_path']],
+            task_name='fill pits')
+        fill_pits_task_list = [fill_pits_task]
+    else:
+        fill_pits_task_list = []
+        f_reg['filled_dem_path'] = f_reg['aligned_dem_path']
 
     flow_dir_task = task_graph.add_task(
         func=routing.flow_dir_mfd,
         args=(
             (f_reg['filled_dem_path'], 1), f_reg['flow_direction_path']),
         kwargs={'working_dir': cache_dir},
-        dependent_task_list=[fill_pits_task],
+        dependent_task_list=fill_pits_task_list,
         target_path_list=[f_reg['flow_direction_path']],
         task_name='flow dir')
 
