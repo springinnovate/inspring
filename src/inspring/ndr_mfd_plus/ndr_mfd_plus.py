@@ -244,15 +244,18 @@ def execute(args):
             (f_reg['flow_direction_path'], 1),
             f_reg['flow_accumulation_path']),
         target_path_list=[f_reg['flow_accumulation_path']],
+        store_result=True,
         dependent_task_list=[flow_dir_task],
         task_name='flow accum')
+
+    max_flow_accum = flow_accum_task.get()-1
 
     stream_extraction_task = task_graph.add_task(
         func=routing.extract_streams_mfd,
         args=(
             (f_reg['flow_accumulation_path'], 1),
             (f_reg['flow_direction_path'], 1),
-            float(args['threshold_flow_accumulation']), f_reg['stream_path']),
+            min(max_flow_accum, float(args['threshold_flow_accumulation'])), f_reg['stream_path']),
         target_path_list=[f_reg['stream_path']],
         dependent_task_list=[flow_accum_task],
         task_name='stream extraction')
