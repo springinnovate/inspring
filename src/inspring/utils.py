@@ -460,6 +460,8 @@ def build_lookup_from_csv(
             encoding = 'utf-8-sig'
     table = pandas.read_csv(
         table_path, sep=None, engine='python', encoding=encoding)
+    # clean up any leading byte order stuff
+    table.columns = table.columns.str.strip().str.replace('\ufeff', '')
     for default_key, default_value in default_keys.items():
         if default_key not in table:
             table[default_key] = default_value
