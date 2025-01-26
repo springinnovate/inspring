@@ -714,7 +714,7 @@ def route_baseflow_sum(
     cdef time_t last_log_time
     last_log_time = ctime(NULL)
 
-    cdef float target_nodata = -1e32
+    cdef float target_nodata = -99999
     cdef int stream_val, outlet
     cdef float b_i, b_sum_i, l_j, l_avail_j, l_sum_j
     cdef int xi, yi, xj, yj, flow_dir_i, p_ij_base
