@@ -197,7 +197,7 @@ def execute(args):
             subsidy that is available for downgradient evapotranspiration.
         args['gamma'] (float or string): is the fraction of pixel local
             recharge that is available to downgradient pixels.
-        args['user_defined_local_recharge'] (boolean): if True, indicates user
+        args['guser_defined_local_recharge'] (boolean): if True, indicates user
             will provide pre-defined local recharge raster layer
         args['l_path'] (string): required if
             args['user_defined_local_recharge'] is True.  If provided pixels
@@ -252,6 +252,9 @@ def _execute(args):
     LOGGER.info('prepare and test inputs for common errors')
 
     # fail early on a missing required rain events table
+    for key in ['user_defined_local_recharge', 'user_defined_climate_zones', 'user_defined_rain_events_path']:
+        if key not in args:
+            args[key] = None
     if (not args['user_defined_local_recharge'] and
             not args['user_defined_climate_zones'] and
             not args['user_defined_rain_events_path']):
