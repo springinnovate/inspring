@@ -285,7 +285,7 @@ def _execute(args):
     #                  for code, biophysical_id, bad_value in
     #                     bad_value_list])))
 
-    if args['monthly_alpha']:
+    if 'monthly_alpha' in args and args['monthly_alpha']:
         # parse out the alpha lookup table of the form (month_id: alpha_val)
         alpha_month_map = dict(
             (key, val['alpha']) for key, val in
