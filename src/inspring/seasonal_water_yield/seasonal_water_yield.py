@@ -384,30 +384,14 @@ def _execute(args):
             task_name='align rasters')
     else:
         # the aligned stuff is the base stuff
-        raise RuntimeError('prealigned not implemented correctly due to rain events dir')
-        # for base_key, aligned_key in aligned_key_list:
-        #     file_registry[aligned_key] = args[base_key]
-        # file_registry['precip_path_aligned_list'] = precip_path_list
-        # file_registry['et0_path_aligned_list'] = et0_path_list
-        # if args['user_defined_rain_events_path']:
-        #     empty_task = task_graph.add_task()
-        #     for month_id in range(12, 0, -1):
-        #         # Generate patterns for month with and without leading zero
-        #         matches = glob.glob(
-        #             args['user_defined_rain_events_path'].format(
-        #                 month=month_id))
-        #         matches += glob.glob(
-        #             args['user_defined_rain_events_path'].format(
-        #                 month=f"{month_id:02d}"))
-        #         if matches:
-        #             file_registry['n_events_path_list'][month_id-1] = \
-        #                 matches[0]
-        #             reclassify_n_events_task_list.append(empty_task)
-        #         else:
-        #             raise ValueError(
-        #                 f"could not find a match in "
-        #                 f"{args['user_defined_rain_events_path']} for month "
-        #                 f"{month_id}")
+        for base_key, aligned_key in aligned_key_list:
+            file_registry[aligned_key] = args[base_key]
+        file_registry['precip_path_aligned_list'] = precip_path_list
+        file_registry['et0_path_aligned_list'] = et0_path_list
+        if args['user_defined_rain_events_dir']:
+            n_events_path_list = sorted(os.listdir(args['user_defined_rain_events_dir']))
+            input_align_list.extend(n_events_path_list)
+            file_registry['n_events_path_list'] = n_events_path_list
         align_task = task_graph.add_task()
 
     raster_info = geoprocessing.get_raster_info(
