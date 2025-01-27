@@ -790,6 +790,41 @@ def _calculate_monthly_quick_flow(
         n_events_raster_path)['nodata'][0]
     stream_nodata = geoprocessing.get_raster_info(stream_path)['nodata'][0]
 
+    def qf_debug_op(p_im, s_i, n_events, stream_array):
+        """Calculate quick flow as in Eq [1] in user's guide.
+
+        Args:
+            p_im (numpy.array): precipitation at pixel i on month m
+            s_i (numpy.array): factor that is 1000/CN_i - 10
+                (Equation 1b from user's guide)
+            n_events (numpy.array): number of rain events on the pixel
+            stream_mask (numpy.array): 1 if stream, otherwise not a stream
+                pixel.
+
+        Returns:
+            quick flow (numpy.array)
+
+        """
+        # s_i is an intermediate output which will always have a defined
+        # nodata value
+        valid_mask = ((p_im != 0.0) &
+                      (stream_array != 1) &
+                      (n_events > 0) &
+                      ~numpy.isclose(s_i, si_nodata))
+        if p_nodata is not None:
+            valid_mask &= ~numpy.isclose(p_im, p_nodata)
+        valid_mask &= numpy.isfinite(p_im)
+        if n_events_nodata is not None:
+            valid_mask &= ~numpy.isclose(n_events, n_events_nodata)
+        valid_mask &= numpy.isfinite(n_events)
+        # stream_nodata is the only input that carry over nodata values from
+        # the aligned DEM.
+        if stream_nodata is not None:
+            valid_mask &= ~numpy.isclose(
+                stream_array, stream_nodata)
+        valid_mask &= numpy.isfinite(stream_array)
+        return valid_mask
+
     def qf_op(p_im, s_i, n_events, stream_array):
         """Calculate quick flow as in Eq [1] in user's guide.
 
@@ -884,6 +919,11 @@ def _calculate_monthly_quick_flow(
               ~numpy.isclose(stream_array, stream_nodata)] = 0.0
         qf_im[~valid_mask] = qf_nodata
         return qf_im
+
+    geoprocessing.raster_calculator(
+        [(path, 1) for path in [
+            precip_path, si_path, n_events_raster_path, stream_path]], qf_debug_op,
+        '%s_debug%s' % qf_monthly_path.splitext(), gdal.GDT_Float32, qf_nodata)
 
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
