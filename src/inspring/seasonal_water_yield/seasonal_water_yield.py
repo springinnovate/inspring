@@ -831,6 +831,10 @@ def _calculate_monthly_quick_flow(
         # the 25.4 converts inches to mm since Si is in inches
         a_im = numpy.empty(valid_n_events.shape)
         a_im = p_im[valid_mask] / (valid_n_events.astype(float) * 25.4)
+        LOGGER.debug(f'valid_n_events: {valid_n_events}')
+        LOGGER.debug(f'p_im[valid_mask] {p_im[valid_mask]}')
+        LOGGER.debug(f'valid_n_events.astype(float) * 25.4 {valid_n_events.astype(float) * 25.4}')
+        LOGGER.debug(f'p_im[valid_mask] / (valid_n_events.astype(float) * 25.4): {p_im[valid_mask] / (valid_n_events.astype(float) * 25.4)}')
         qf_im = numpy.full(p_im.shape, qf_nodata)
         qf_im[valid_mask] = a_im
         return qf_im
