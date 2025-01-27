@@ -823,7 +823,68 @@ def _calculate_monthly_quick_flow(
             valid_mask &= ~numpy.isclose(
                 stream_array, stream_nodata)
         valid_mask &= numpy.isfinite(stream_array)
-        return valid_mask
+
+        valid_n_events = n_events[valid_mask]
+        valid_si = s_i[valid_mask]
+
+        # a_im is the mean rain depth on a rainy day at pixel i on month m
+        # the 25.4 converts inches to mm since Si is in inches
+        a_im = numpy.empty(valid_n_events.shape)
+        a_im = p_im[valid_mask] / (valid_n_events * 25.4)
+        qf_im = numpy.full(p_im.shape, qf_nodata)
+        return a_im
+
+        # Precompute the last two terms in quickflow so we can handle a
+        # numerical instability when s_i is large and/or a_im is small
+        # on large valid_si/a_im this number will be zero and the latter
+        # exponent will also be zero because of a divide by zero. rather than
+        # raise that numerical warning, just handle it manually
+        E1 = scipy.special.expn(1, valid_si / a_im)
+        E1[valid_si == 0] = 0
+        nonzero_e1_mask = E1 != 0
+        exp_result = numpy.zeros(valid_si.shape)
+        exp_result[nonzero_e1_mask] = numpy.exp(
+            (0.8 * valid_si[nonzero_e1_mask]) / a_im[nonzero_e1_mask] +
+            numpy.log(E1[nonzero_e1_mask]))
+
+        # qf_im is the quickflow at pixel i on month m Eq. [1]
+        try:
+            qf_im[valid_mask] = (25.4 * valid_n_events * (
+                (a_im - valid_si) * numpy.exp(-0.2 * valid_si / a_im) +
+                valid_si ** 2 / a_im * exp_result))
+        except RuntimeWarning:
+            LOGGER.exception(
+                f'************error on quickflow:\n'
+                f'(25.4 * {valid_n_events} * ('
+                f'({a_im} - {valid_si}) * numpy.exp(-0.2 * {valid_si} / {a_im}) +'
+                f'{valid_si} ** 2 / {a_im} * {exp_result}))')
+            LOGGER.exception(f'{valid_si[valid_si < 0]} {a_im[a_im <= 0]}')
+            div_result = valid_si / a_im
+            invalid_result = ~numpy.isfinite(div_result)
+            LOGGER.exception(f'{div_result} {div_result[invalid_result]} ({valid_si[invalid_result]}) / ({a_im[invalid_result]}')
+            for array, array_id in [(valid_n_events, 'valid_n_events'), (a_im, 'a_im'), (valid_si, 'valid_si'), (exp_result, 'exp_result')]:
+                invalid_values = ~numpy.isfinite(array)
+                if any(invalid_values):
+                    LOGGER.error(
+                        f'{array_id}: {array[~numpy.isfinite(array[invalid_values])]}')
+                raise
+
+        # if precip is 0, then QF should be zero
+        qf_im[(p_im == 0) | (n_events == 0)] = 0.0
+        # if we're on a stream, set quickflow to the precipitation
+        valid_stream_precip_mask = (stream_array == 1) & numpy.isfinite(p_im)
+        if p_nodata is not None:
+            valid_stream_precip_mask &= ~numpy.isclose(
+                p_im, p_nodata)
+        qf_im[valid_stream_precip_mask] = p_im[valid_stream_precip_mask]
+
+        # this handles some user cases where they don't have data defined on
+        # their landcover raster. It otherwise crashes later with some NaNs.
+        # more intermediate outputs with nodata values guaranteed to be defined
+        qf_im[numpy.isclose(qf_im, qf_nodata) &
+              ~numpy.isclose(stream_array, stream_nodata)] = 0.0
+        qf_im[~valid_mask] = qf_nodata
+        return qf_im
 
     def qf_op(p_im, s_i, n_events, stream_array):
         """Calculate quick flow as in Eq [1] in user's guide.
@@ -923,7 +984,7 @@ def _calculate_monthly_quick_flow(
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
             precip_path, si_path, n_events_raster_path, stream_path]], qf_debug_op,
-        '%s_debug%s' % os.path.splitext(qf_monthly_path), gdal.GDT_Float32, qf_nodata)
+        '%s_aim%s' % os.path.splitext(qf_monthly_path), gdal.GDT_Float32, qf_nodata)
 
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
