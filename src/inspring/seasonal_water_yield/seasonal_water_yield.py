@@ -389,7 +389,8 @@ def _execute(args):
             n_events_path_list = sorted(os.listdir(args['user_defined_rain_events_dir']))
             input_align_list.extend(n_events_path_list)
             file_registry['n_events_path_list'] = n_events_path_list
-        align_task = task_graph.add_task()
+        empty_task = task_graph.add_task()
+        reclassify_n_events_task_list = [empty_task]*12
 
     raster_info = geoprocessing.get_raster_info(
         file_registry['dem_aligned_path'])
@@ -516,7 +517,7 @@ def _execute(args):
                         dependent_task_list=[align_task],
                         task_name='n_events for month %d' % month_id)
                     reclassify_n_events_task_list.append(n_events_task)
-                elif not args['user_defined_rain_events_dir']:
+                else:
                     # rain_events_lookup defined near entry point of execute
                     n_events = rain_events_lookup[month_id+1]['events']
                     n_events_task = task_graph.add_task(
