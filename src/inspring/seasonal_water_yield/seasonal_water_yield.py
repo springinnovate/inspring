@@ -835,8 +835,10 @@ def _calculate_monthly_quick_flow(
         LOGGER.debug(f'***** p_im[valid_mask] {p_im[valid_mask]}')
         LOGGER.debug(f'***** valid_n_events.astype(float) * 25.4 {valid_n_events.astype(float) * 25.4}')
         LOGGER.debug(f'***** p_im[valid_mask] / (valid_n_events.astype(float) * 25.4): {p_im[valid_mask] / (valid_n_events.astype(float) * 25.4)}')
+        LOGGER.debug(f'***** a_im:: {a_im.dtype} {a_im}')
         qf_im = numpy.full(p_im.shape, qf_nodata)
         qf_im[valid_mask] = a_im
+        LOGGER.debug(f'***** qf_im:: {qf_im.dtype} {qf_im}')
         return qf_im
 
         # Precompute the last two terms in quickflow so we can handle a
