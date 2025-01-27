@@ -908,9 +908,6 @@ def _calculate_curve_number_raster(
     Returns:
         None
     """
-    soil_nodata = geoprocessing.get_raster_info(
-        soil_group_path)['nodata'][0]
-
     # curve numbers are always positive so -1 a good nodata choice
     cn_nodata = -1
 
@@ -925,7 +922,7 @@ def _calculate_curve_number_raster(
             4: cn_d
         }
         for soil_group_id in numpy.unique(soil_group_array):
-            if soil_group_id is None or soil_group_id == soil_nodata:
+            if not (1 <= soil_group_id <=4):
                 continue
             current_soil_mask = (soil_group_array == soil_group_id)
             cn_result[current_soil_mask] = (
