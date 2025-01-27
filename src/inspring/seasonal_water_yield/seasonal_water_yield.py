@@ -309,37 +309,34 @@ def _execute(args):
         ('lulc_raster_path', 'lulc_aligned_path'),
         ('dem_raster_path', 'dem_aligned_path')]
     if not args['user_defined_local_recharge']:
-        precip_path_list = []
-        et0_path_list = []
-
-        et0_dir_list = [
+        et0_path_list = sorted([
             os.path.join(args['et0_dir'], f) for f in os.listdir(
-                args['et0_dir'])]
-        precip_dir_list = [
+                args['et0_dir'])])
+        precip_path_list = sorted([
             os.path.join(args['precip_dir'], f) for f in os.listdir(
-                args['precip_dir'])]
+                args['precip_dir'])])
 
-        for month_index in range(1, N_MONTHS + 1):
-            month_file_match = re.compile(r'.*[^\d]0?%d\.tif$' % month_index)
-            LOGGER.debug(month_file_match)
-            try:
-                for data_type, dir_list, path_list in [
-                        ('et0', et0_dir_list, et0_path_list),
-                        ('Precip', precip_dir_list, precip_path_list)]:
-                    LOGGER.debug(dir_list)
-                    file_list = [
-                        month_file_path for month_file_path in dir_list
-                        if month_file_match.match(month_file_path)]
-                    if len(file_list) == 0:
-                        raise ValueError(
-                            "No %s found for month %d" % (data_type, month_index))
-                    if len(file_list) > 1:
-                        raise ValueError(
-                            "Ambiguous set of files found for month %d: %s" %
-                            (month_index, file_list))
-                    path_list.append(file_list[0])
-            except ValueError:
-                path_list = sorted(dir_list)
+        # for month_index in range(1, N_MONTHS + 1):
+        #     month_file_match = re.compile(r'.*[^\d]0?%d\.tif$' % month_index)
+        #     LOGGER.debug(month_file_match)
+        #     try:
+        #         for data_type, dir_list, path_list in [
+        #                 ('et0', et0_dir_list, et0_path_list),
+        #                 ('Precip', precip_dir_list, precip_path_list)]:
+        #             LOGGER.debug(dir_list)
+        #             file_list = [
+        #                 month_file_path for month_file_path in dir_list
+        #                 if month_file_match.match(month_file_path)]
+        #             if len(file_list) == 0:
+        #                 raise ValueError(
+        #                     "No %s found for month %d" % (data_type, month_index))
+        #             if len(file_list) > 1:
+        #                 raise ValueError(
+        #                     "Ambiguous set of files found for month %d: %s" %
+        #                     (month_index, file_list))
+        #             path_list.append(file_list[0])
+        #     except ValueError:
+        #         path_list = sorted(dir_list)
 
         input_align_list = (
             precip_path_list + [args['soil_group_path']] + et0_path_list +
