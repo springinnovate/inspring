@@ -488,7 +488,7 @@ def _execute(args):
             task_name='l avail task')
     else:
         # user didn't predefine local recharge or montly events so calculate it
-        if 'user_defined_rain_events_dir' not in args or args['user_defined_rain_events_dir']:
+        if 'user_defined_rain_events_dir' not in args or not args['user_defined_rain_events_dir']:
             LOGGER.info('loading number of monthly events')
             reclass_error_details = {
                 'raster_name': 'Climate Zone', 'column_name': 'cz_id',
