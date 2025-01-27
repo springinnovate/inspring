@@ -985,7 +985,7 @@ def _calculate_monthly_quick_flow(
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
             precip_path, si_path, n_events_raster_path, stream_path]], qf_debug_op,
-        '%s_aim%s' % os.path.splitext(qf_monthly_path), gdal.GDT_Float32, qf_nodata)
+        '%s_precip%s' % os.path.splitext(qf_monthly_path), gdal.GDT_Float32, qf_nodata)
 
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
