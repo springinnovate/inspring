@@ -832,6 +832,8 @@ def _calculate_monthly_quick_flow(
         a_im = numpy.empty(valid_n_events.shape)
         a_im = p_im[valid_mask] / (valid_n_events * 25.4)
         qf_im = numpy.full(p_im.shape, qf_nodata)
+        qf_im[valid_mask] = valid_n_events
+        return qf_im
 
         # Precompute the last two terms in quickflow so we can handle a
         # numerical instability when s_i is large and/or a_im is small
@@ -845,8 +847,6 @@ def _calculate_monthly_quick_flow(
         exp_result[nonzero_e1_mask] = numpy.exp(
             (0.8 * valid_si[nonzero_e1_mask]) / a_im[nonzero_e1_mask] +
             numpy.log(E1[nonzero_e1_mask]))
-        qf_im[valid_mask] = a_im
-        return qf_im
 
         # qf_im is the quickflow at pixel i on month m Eq. [1]
         try:
