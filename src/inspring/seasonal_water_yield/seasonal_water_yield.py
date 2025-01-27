@@ -1,5 +1,6 @@
 """InVEST Seasonal Water Yield Model."""
 import fractions
+from pathlib import Path
 import glob
 import logging
 import os
@@ -309,12 +310,8 @@ def _execute(args):
         ('lulc_raster_path', 'lulc_aligned_path'),
         ('dem_raster_path', 'dem_aligned_path')]
     if not args['user_defined_local_recharge']:
-        et0_path_list = sorted([
-            os.path.join(args['et0_dir'], f) for f in os.listdir(
-                args['et0_dir'])])
-        precip_path_list = sorted([
-            os.path.join(args['precip_dir'], f) for f in os.listdir(
-                args['precip_dir'])])
+        et0_path_list = sorted(str(path) for path in Path(args['et0_dir']).glob('*.tif'))
+        precip_path_list = sorted(str(path) for path in Path(args['precip_dir']).glob('*.tif'))
 
         # for month_index in range(1, N_MONTHS + 1):
         #     month_file_match = re.compile(r'.*[^\d]0?%d\.tif$' % month_index)
@@ -386,7 +383,9 @@ def _execute(args):
         file_registry['precip_path_aligned_list'] = precip_path_list
         file_registry['et0_path_aligned_list'] = et0_path_list
         if args['user_defined_rain_events_dir']:
-            n_events_path_list = sorted(os.listdir(args['user_defined_rain_events_dir']))
+            n_events_path_list = sorted(
+                str(path) for path in Path(args['user_defined_rain_events_dir']).glob('*.tif')
+            )
             input_align_list.extend(n_events_path_list)
             file_registry['n_events_path_list'] = n_events_path_list
         align_task = task_graph.add_task()
