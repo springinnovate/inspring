@@ -389,8 +389,8 @@ def _execute(args):
             n_events_path_list = sorted(os.listdir(args['user_defined_rain_events_dir']))
             input_align_list.extend(n_events_path_list)
             file_registry['n_events_path_list'] = n_events_path_list
-        empty_task = task_graph.add_task()
-        reclassify_n_events_task_list = [empty_task]*12
+        align_task = task_graph.add_task()
+        reclassify_n_events_task_list = [align_task]*12  # it's empty though on purpose
 
     raster_info = geoprocessing.get_raster_info(
         file_registry['dem_aligned_path'])
