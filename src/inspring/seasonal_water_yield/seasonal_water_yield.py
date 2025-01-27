@@ -213,9 +213,7 @@ def execute(args):
         args['climate_zone_raster_path'] (string): required if
             args['user_defined_climate_zones'] is True, pixel values correspond
             to the "cz_id" values defined in args['climate_zone_table_path']
-        args['user_defined_rain_events_path'] (string): path to match a
-            pattern to user defined rain event rasters must have the format
-            string {month} embedded somewhere in it.
+        args['user_defined_rain_events_dir'] (string): path to directory of n_event rasters
         args['monthly_alpha'] (boolean): if True, use the alpha
         args['monthly_alpha_path'] (string): required if args['monthly_alpha']
             is True. A CSV file.
@@ -252,38 +250,15 @@ def _execute(args):
     LOGGER.info('prepare and test inputs for common errors')
 
     # fail early on a missing required rain events table
-    for key in ['user_defined_local_recharge', 'user_defined_climate_zones', 'user_defined_rain_events_path']:
+    for key in ['user_defined_local_recharge', 'user_defined_climate_zones', 'user_defined_rain_events_dir']:
         if key not in args:
             args[key] = None
     if (not args['user_defined_local_recharge'] and
             not args['user_defined_climate_zones'] and
-            not args['user_defined_rain_events_path']):
+            not args['user_defined_rain_events_dir']):
         rain_events_lookup = (
             utils.build_lookup_from_csv(
                 args['rain_events_table_path'], 'month'))
-
-    # biophysical_table = utils.build_lookup_from_csv(
-    #     args['biophysical_table_path'], args['lucode_field'])
-
-    # bad_value_list = []
-    # for lucode, value in biophysical_table.items():
-    #     for biophysical_id in ['cn_a', 'cn_b', 'cn_c', 'cn_d'] + [
-    #             'kc_%d' % (month_index+1) for month_index in range(N_MONTHS)]:
-    #         try:
-    #             _ = float(value[biophysical_id])
-    #         except ValueError:
-    #             bad_value_list.append(
-    #                 (biophysical_id, lucode, value[biophysical_id]))
-
-    # if bad_value_list:
-    #     raise ValueError(
-    #         'biophysical_table at %s seems to have the following incorrect '
-    #         'values (expecting all floating point numbers): %s' % (
-    #             args['biophysical_table_path'], ','.join(
-    #                 ['%s(lucode %d): "%s"' % (
-    #                     lucode, biophysical_id, bad_value)
-    #                  for code, biophysical_id, bad_value in
-    #                     bad_value_list])))
 
     if 'monthly_alpha' in args and args['monthly_alpha']:
         # parse out the alpha lookup table of the form (month_id: alpha_val)
@@ -389,30 +364,14 @@ def _execute(args):
 
     reclassify_n_events_task_list = []
 
-    if args['user_defined_rain_events_path']:
+    if args['user_defined_rain_events_dir']:
         empty_task = task_graph.add_task()
-        for month_id in range(12, 0, -1):
-            # Generate patterns for year with and without leading zero
-            matches = glob.glob(
-                args['user_defined_rain_events_path'].format(
-                    month=month_id))
-            matches += glob.glob(
-                args['user_defined_rain_events_path'].format(
-                    month=f"{month_id:02d}"))
-            if matches:
-                input_align_list.append(matches[0])
-                output_align_list.append(
-                    file_registry['n_events_path_list'][month_id-1])
-                interpolate_list.append('near')
-                reclassify_n_events_task_list.append(empty_task)
-            else:
-                raise ValueError(
-                    f"could not find a match in "
-                    f"{args['user_defined_rain_events_path']} for month "
-                    f"{month_id}")
+        n_events_path_list = sorted(os.listdir(args['user_defined_rain_events_dir']))
+        input_align_list.extend(n_events_path_list)
+        file_registry['n_events_path_list'] = n_events_path_list
+        output_align_list.extend(n_events_path_list)
 
     if 'prealigned' not in args or not args['prealigned']:
-        vector_mask_options = {'mask_vector_path': args['aoi_path']}
         align_task = task_graph.add_task(
             func=geoprocessing.align_and_resize_raster_stack,
             args=(
@@ -425,29 +384,30 @@ def _execute(args):
             task_name='align rasters')
     else:
         # the aligned stuff is the base stuff
-        for base_key, aligned_key in aligned_key_list:
-            file_registry[aligned_key] = args[base_key]
-        file_registry['precip_path_aligned_list'] = precip_path_list
-        file_registry['et0_path_aligned_list'] = et0_path_list
-        if args['user_defined_rain_events_path']:
-            empty_task = task_graph.add_task()
-            for month_id in range(12, 0, -1):
-                # Generate patterns for month with and without leading zero
-                matches = glob.glob(
-                    args['user_defined_rain_events_path'].format(
-                        month=month_id))
-                matches += glob.glob(
-                    args['user_defined_rain_events_path'].format(
-                        month=f"{month_id:02d}"))
-                if matches:
-                    file_registry['n_events_path_list'][month_id-1] = \
-                        matches[0]
-                    reclassify_n_events_task_list.append(empty_task)
-                else:
-                    raise ValueError(
-                        f"could not find a match in "
-                        f"{args['user_defined_rain_events_path']} for month "
-                        f"{month_id}")
+        raise RuntimeError('prealigned not implemented correctly due to rain events dir')
+        # for base_key, aligned_key in aligned_key_list:
+        #     file_registry[aligned_key] = args[base_key]
+        # file_registry['precip_path_aligned_list'] = precip_path_list
+        # file_registry['et0_path_aligned_list'] = et0_path_list
+        # if args['user_defined_rain_events_path']:
+        #     empty_task = task_graph.add_task()
+        #     for month_id in range(12, 0, -1):
+        #         # Generate patterns for month with and without leading zero
+        #         matches = glob.glob(
+        #             args['user_defined_rain_events_path'].format(
+        #                 month=month_id))
+        #         matches += glob.glob(
+        #             args['user_defined_rain_events_path'].format(
+        #                 month=f"{month_id:02d}"))
+        #         if matches:
+        #             file_registry['n_events_path_list'][month_id-1] = \
+        #                 matches[0]
+        #             reclassify_n_events_task_list.append(empty_task)
+        #         else:
+        #             raise ValueError(
+        #                 f"could not find a match in "
+        #                 f"{args['user_defined_rain_events_path']} for month "
+        #                 f"{month_id}")
         align_task = task_graph.add_task()
 
     raster_info = geoprocessing.get_raster_info(
@@ -546,7 +506,7 @@ def _execute(args):
             task_name='l avail task')
     else:
         # user didn't predefine local recharge or montly events so calculate it
-        if not args['user_defined_rain_events_path']:
+        if 'user_defined_rain_events_dir' not in args or args['user_defined_rain_events_dir']:
             LOGGER.info('loading number of monthly events')
             reclass_error_details = {
                 'raster_name': 'Climate Zone', 'column_name': 'cz_id',
