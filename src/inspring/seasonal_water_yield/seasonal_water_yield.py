@@ -833,7 +833,7 @@ def _calculate_monthly_quick_flow(
         a_im = p_im[valid_mask] / (valid_n_events * 25.4)
         qf_im = numpy.full(p_im.shape, qf_nodata)
         qf_im[valid_mask] = valid_n_events
-        return p_im
+        return valid_n_events
 
         # Precompute the last two terms in quickflow so we can handle a
         # numerical instability when s_i is large and/or a_im is small
@@ -985,7 +985,7 @@ def _calculate_monthly_quick_flow(
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
             precip_path, si_path, n_events_raster_path, stream_path]], qf_debug_op,
-        '%s_precip%s' % os.path.splitext(qf_monthly_path), gdal.GDT_Float32, qf_nodata)
+        '%_n_events%s' % os.path.splitext(qf_monthly_path), gdal.GDT_Float32, qf_nodata)
 
     geoprocessing.raster_calculator(
         [(path, 1) for path in [
