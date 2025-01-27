@@ -830,8 +830,8 @@ def _calculate_monthly_quick_flow(
         # a_im is the mean rain depth on a rainy day at pixel i on month m
         # the 25.4 converts inches to mm since Si is in inches
         a_im = numpy.empty(valid_n_events.shape)
-        LOGGER.debug(f'valid_n_events: {valid_n_events}')
-        LOGGER.debug(f'p_i:m {p_im}')
+        LOGGER.debug(f'valid_n_events: {valid_n_events.dtype}')
+        LOGGER.debug(f'p_i:m {p_im.dtype}')
         sys.exit()
         a_im = p_im[valid_mask] * (valid_n_events * 25.4)
         qf_im = numpy.full(p_im.shape, qf_nodata)
