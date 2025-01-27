@@ -519,7 +519,7 @@ def _execute(args):
                         dependent_task_list=[align_task],
                         task_name='n_events for month %d' % month_id)
                     reclassify_n_events_task_list.append(n_events_task)
-                else:
+                elif not args['user_defined_rain_events_dir']:
                     # rain_events_lookup defined near entry point of execute
                     n_events = rain_events_lookup[month_id+1]['events']
                     n_events_task = task_graph.add_task(
