@@ -412,7 +412,7 @@ def _execute(args):
                     f"{month_id}")
 
     if 'prealigned' not in args or not args['prealigned']:
-        vector_mask_options = {'mask_vector_path': args['watersheds_path']}
+        vector_mask_options = {'mask_vector_path': args['aoi_path']}
         align_task = task_graph.add_task(
             func=geoprocessing.align_and_resize_raster_stack,
             args=(
