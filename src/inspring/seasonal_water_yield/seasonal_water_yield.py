@@ -365,7 +365,6 @@ def _execute(args):
         output_align_list.extend(n_events_path_list)
 
     if 'prealigned' not in args or not args['prealigned']:
-        LOGGER.debug(f'**************** about to align:\n\n\t{input_align_list}\n\n\t{output_align_list}\n\n\t{interpolate_list}')
         align_task = task_graph.add_task(
             func=geoprocessing.align_and_resize_raster_stack,
             args=(
@@ -388,6 +387,7 @@ def _execute(args):
             )
             input_align_list.extend(n_events_path_list)
             file_registry['n_events_path_list'] = n_events_path_list
+            LOGGER.debug(f"********************* {args['user_defined_rain_events_dir']}: n_events_path_list {n_events_path_list}")
         align_task = task_graph.add_task()
         reclassify_n_events_task_list = [align_task]*12  # it's empty though on purpose
 
