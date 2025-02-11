@@ -313,28 +313,6 @@ def _execute(args):
         et0_path_list = sorted(str(path) for path in Path(args['et0_dir']).glob('*.tif'))
         precip_path_list = sorted(str(path) for path in Path(args['precip_dir']).glob('*.tif'))
 
-        # for month_index in range(1, N_MONTHS + 1):
-        #     month_file_match = re.compile(r'.*[^\d]0?%d\.tif$' % month_index)
-        #     LOGGER.debug(month_file_match)
-        #     try:
-        #         for data_type, dir_list, path_list in [
-        #                 ('et0', et0_dir_list, et0_path_list),
-        #                 ('Precip', precip_dir_list, precip_path_list)]:
-        #             LOGGER.debug(dir_list)
-        #             file_list = [
-        #                 month_file_path for month_file_path in dir_list
-        #                 if month_file_match.match(month_file_path)]
-        #             if len(file_list) == 0:
-        #                 raise ValueError(
-        #                     "No %s found for month %d" % (data_type, month_index))
-        #             if len(file_list) > 1:
-        #                 raise ValueError(
-        #                     "Ambiguous set of files found for month %d: %s" %
-        #                     (month_index, file_list))
-        #             path_list.append(file_list[0])
-        #     except ValueError:
-        #         path_list = sorted(dir_list)
-
         input_align_list = (
             precip_path_list + [args['soil_group_path']] + et0_path_list +
             input_align_list)
@@ -552,11 +530,6 @@ def _execute(args):
             task_name='calculate Si raster')
 
         quick_flow_task_list = []
-        # LOGGER.warning(
-        #     f"for workspace {args['workspace_dir']}\n"
-        #     f"resulting rain events path list: {file_registry['n_events_path_list']}\n"
-        #     f"args['user_defined_rain_events_path']: {args['user_defined_rain_events_path']}\n"
-        #     f"prealinged {args['prealigned']}\n")
         for month_index in range(N_MONTHS):
             LOGGER.info('calculate quick flow for month %d', month_index+1)
             monthly_quick_flow_task = task_graph.add_task(
@@ -664,7 +637,7 @@ def _execute(args):
     else:
         b_sum_dependent_task_list = [calculate_local_recharge_task]
 
-    b_sum_task = task_graph.add_task(
+    _ = task_graph.add_task(
         func=seasonal_water_yield_core.route_baseflow_sum,
         args=(
             file_registry['flow_dir_mfd_path'],
@@ -674,14 +647,13 @@ def _execute(args):
             file_registry['stream_path'],
             file_registry['b_path'],
             file_registry['b_sum_path']),
-
         target_path_list=[
             file_registry['b_sum_path'], file_registry['b_path']],
         dependent_task_list=b_sum_dependent_task_list + [l_sum_task],
         task_name='calculate B_sum')
 
-    task_graph.close()
     task_graph.join()
+    task_graph.close()
 
     LOGGER.info('  (\\w/)  SWY Complete!')
     LOGGER.info('  (..  \\ ')
@@ -790,109 +762,6 @@ def _calculate_monthly_quick_flow(
         n_events_raster_path)['nodata'][0]
     stream_nodata = geoprocessing.get_raster_info(stream_path)['nodata'][0]
 
-    # def qf_debug_op(p_im, s_i, n_events, stream_array):
-    #     """Calculate quick flow as in Eq [1] in user's guide.
-
-    #     Args:
-    #         p_im (numpy.array): precipitation at pixel i on month m
-    #         s_i (numpy.array): factor that is 1000/CN_i - 10
-    #             (Equation 1b from user's guide)
-    #         n_events (numpy.array): number of rain events on the pixel
-    #         stream_mask (numpy.array): 1 if stream, otherwise not a stream
-    #             pixel.
-
-    #     Returns:
-    #         quick flow (numpy.array)
-
-    #     """
-    #     # s_i is an intermediate output which will always have a defined
-    #     # nodata value
-    #     valid_mask = ((p_im != 0.0) &
-    #                   (stream_array != 1) &
-    #                   (n_events > 0) &
-    #                   ~numpy.isclose(s_i, si_nodata))
-    #     if p_nodata is not None:
-    #         valid_mask &= ~numpy.isclose(p_im, p_nodata)
-    #     valid_mask &= numpy.isfinite(p_im)
-    #     if n_events_nodata is not None:
-    #         valid_mask &= ~numpy.isclose(n_events, n_events_nodata)
-    #     valid_mask &= numpy.isfinite(n_events)
-    #     # stream_nodata is the only input that carry over nodata values from
-    #     # the aligned DEM.
-    #     if stream_nodata is not None:
-    #         valid_mask &= ~numpy.isclose(
-    #             stream_array, stream_nodata)
-    #     valid_mask &= numpy.isfinite(stream_array)
-
-    #     valid_n_events = n_events[valid_mask]
-    #     valid_si = s_i[valid_mask]
-
-    #     # a_im is the mean rain depth on a rainy day at pixel i on month m
-    #     # the 25.4 converts inches to mm since Si is in inches
-    #     a_im = numpy.empty(valid_n_events.shape)
-    #     a_im = p_im[valid_mask] / (valid_n_events.astype(float) * 25.4)
-    #     LOGGER.debug(f'***** valid_n_events: {valid_n_events}')
-    #     LOGGER.debug(f'***** p_im[valid_mask] {p_im[valid_mask]}')
-    #     LOGGER.debug(f'***** valid_n_events.astype(float) * 25.4 {valid_n_events.astype(float) * 25.4}')
-    #     LOGGER.debug(f'***** p_im[valid_mask] / (valid_n_events.astype(float) * 25.4): {p_im[valid_mask] / (valid_n_events.astype(float) * 25.4)}')
-    #     LOGGER.debug(f'***** a_im:: {a_im.dtype} {a_im}')
-    #     qf_im = numpy.full(p_im.shape, qf_nodata, dtype=float)
-    #     qf_im[valid_mask] = a_im
-    #     LOGGER.debug(f'***** qf_im:: {qf_im.dtype} {qf_im}')
-    #     return qf_im
-
-    #     # Precompute the last two terms in quickflow so we can handle a
-    #     # numerical instability when s_i is large and/or a_im is small
-    #     # on large valid_si/a_im this number will be zero and the latter
-    #     # exponent will also be zero because of a divide by zero. rather than
-    #     # raise that numerical warning, just handle it manually
-    #     E1 = scipy.special.expn(1, valid_si / a_im)
-    #     E1[valid_si == 0] = 0
-    #     nonzero_e1_mask = E1 != 0
-    #     exp_result = numpy.zeros(valid_si.shape)
-    #     exp_result[nonzero_e1_mask] = numpy.exp(
-    #         (0.8 * valid_si[nonzero_e1_mask]) / a_im[nonzero_e1_mask] +
-    #         numpy.log(E1[nonzero_e1_mask]))
-
-    #     # qf_im is the quickflow at pixel i on month m Eq. [1]
-    #     try:
-    #         qf_im[valid_mask] = (25.4 * valid_n_events * (
-    #             (a_im - valid_si) * numpy.exp(-0.2 * valid_si / a_im) +
-    #             valid_si ** 2 / a_im * exp_result))
-    #     except RuntimeWarning:
-    #         LOGGER.exception(
-    #             f'************error on quickflow:\n'
-    #             f'(25.4 * {valid_n_events} * ('
-    #             f'({a_im} - {valid_si}) * numpy.exp(-0.2 * {valid_si} / {a_im}) +'
-    #             f'{valid_si} ** 2 / {a_im} * {exp_result}))')
-    #         LOGGER.exception(f'{valid_si[valid_si < 0]} {a_im[a_im <= 0]}')
-    #         div_result = valid_si / a_im
-    #         invalid_result = ~numpy.isfinite(div_result)
-    #         LOGGER.exception(f'{div_result} {div_result[invalid_result]} ({valid_si[invalid_result]}) / ({a_im[invalid_result]}')
-    #         for array, array_id in [(valid_n_events, 'valid_n_events'), (a_im, 'a_im'), (valid_si, 'valid_si'), (exp_result, 'exp_result')]:
-    #             invalid_values = ~numpy.isfinite(array)
-    #             if any(invalid_values):
-    #                 LOGGER.error(
-    #                     f'{array_id}: {array[~numpy.isfinite(array[invalid_values])]}')
-    #             raise
-
-    #     # if precip is 0, then QF should be zero
-    #     qf_im[(p_im == 0) | (n_events == 0)] = 0.0
-    #     # if we're on a stream, set quickflow to the precipitation
-    #     valid_stream_precip_mask = (stream_array == 1) & numpy.isfinite(p_im)
-    #     if p_nodata is not None:
-    #         valid_stream_precip_mask &= ~numpy.isclose(
-    #             p_im, p_nodata)
-    #     qf_im[valid_stream_precip_mask] = p_im[valid_stream_precip_mask]
-
-    #     # this handles some user cases where they don't have data defined on
-    #     # their landcover raster. It otherwise crashes later with some NaNs.
-    #     # more intermediate outputs with nodata values guaranteed to be defined
-    #     qf_im[numpy.isclose(qf_im, qf_nodata) &
-    #           ~numpy.isclose(stream_array, stream_nodata)] = 0.0
-    #     qf_im[~valid_mask] = qf_nodata
-    #     return qf_im
-
     def qf_op(p_im, s_i, n_events, stream_array):
         """Calculate quick flow as in Eq [1] in user's guide.
 
@@ -987,11 +856,6 @@ def _calculate_monthly_quick_flow(
               ~numpy.isclose(stream_array, stream_nodata)] = 0.0
         qf_im[~valid_mask] = qf_nodata
         return qf_im
-
-    # geoprocessing.raster_calculator(
-    #     [(path, 1) for path in [
-    #         precip_path, si_path, n_events_raster_path, stream_path]], qf_debug_op,
-    #     '%sa_im%s' % os.path.splitext(qf_monthly_path), gdal.GDT_Float32, qf_nodata)
 
     geoprocessing.raster_calculator(
         [(path, 1) for path in [

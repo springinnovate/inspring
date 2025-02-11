@@ -395,7 +395,7 @@ def execute(args):
             float(args['k_param']), ndr_path),
         target_path_list=[ndr_path],
         dependent_task_list=[ndr_eff_task, ic_task],
-        task_name='calc ndr n')
+        task_name=f'calc ndr n {ndr_path}')
 
     export_path = f_reg['n_export_path']
     _ = task_graph.add_task(
@@ -801,7 +801,12 @@ def _calculate_ndr(
     """Calculate NDR as a function of Equation 4 in the user's guide."""
     ic_factor_raster = gdal.OpenEx(ic_factor_path, gdal.OF_RASTER)
     ic_factor_band = ic_factor_raster.GetRasterBand(1)
-    ic_min, ic_max, _, _ = ic_factor_band.GetStatistics(0, 1)
+    try:
+        ic_min, ic_max, _, _ = ic_factor_band.GetStatistics(0, 1)
+    except RuntimeError:
+        # this might happen if there's a completely empty raster
+        ic_min = 0
+        ic_max = 0
     ic_factor_band = None
     ic_factor_raster = None
     ic_0_param = (ic_min + ic_max) / 2.0
